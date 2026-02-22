@@ -36,12 +36,10 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     address = payload.get("address") or {}
 
     required_address_fields = [
-        "building_no",
+        "address_line1",
         "postal_code",
-        "street_name",
         "city",
         "country",
-        "full_address"
     ]
 
     for field in required_address_fields:
@@ -49,7 +47,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             raise OrderValidationError(f"{field} is required")
 
     # -------------------------
-    # CUSTOMER
+    # CUSTOMER (AUTO-NUMBER SAFE)
     # -------------------------
 
     customer_id = get_or_create_customer(payload)
@@ -74,7 +72,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
         preview_items.append({
             "item_code": item["item_code"],
-            "qty": qty
+            "quantity": qty  # Must match ERP child table field
         })
 
     # -------------------------
@@ -82,36 +80,35 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     # -------------------------
 
     rfq_payload = {
-        "doctype": settings.ECOM_RFQ_DOCTYPE_URL,
+        "doctype": settings.ECOM_RFQ_DOCTYPE,
 
+        # Proper ERP link
+        "customer": customer_id,
+
+        # Snapshot fields
         "customer_name": payload.get("customer_name"),
         "email_id": payload.get("contact", {}).get("email"),
-        "company_name": payload.get("customer_name"),
+        "company_name": payload.get("company_name"),
         "phone_number": payload.get("phone"),
         "cr_no": payload.get("cr_no"),
         "vat_id": payload.get("vat_number"),
 
-        "building_no": address.get("building_no"),
+        "address_line1": address.get("address_line1"),
         "postal_code": address.get("postal_code"),
-        "street_name": address.get("street_name"),
-        "district": address.get("district"),
         "city": address.get("city"),
         "country": address.get("country"),
-        "full_address": address.get("full_address"),
 
-        # IMPORTANT: Must match ERP child table field name
-        "item_table": preview_items,
+        # Child table
+        settings.ECOM_RFQ_ITEM_TABLE_FIELD: preview_items,
 
         "transaction_date": _now_date(),
-
         "notes": payload.get("notes", "")
     }
 
-    # Remove None values
     rfq_payload = {k: v for k, v in rfq_payload.items() if v is not None}
 
     # -------------------------
-    # CREATE IN ERP
+    # CREATE RFQ IN ERP
     # -------------------------
 
     res = erp_request(
