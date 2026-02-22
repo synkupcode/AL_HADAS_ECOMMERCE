@@ -19,7 +19,9 @@ def get_products(
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> Dict[str, Any]:
 
-    # Validate pagination
+    # --------------------
+    # VALIDATION
+    # --------------------
     if page < 1:
         page = 1
 
@@ -27,7 +29,7 @@ def get_products(
         page_size = DEFAULT_PAGE_SIZE
 
     # --------------------
-    # ERP FILTERS
+    # FILTERS
     # --------------------
     filters: List[Any] = [
         ["disabled", "=", 0],
@@ -40,7 +42,7 @@ def get_products(
         filters.append(["custom_subcategory", "=", subcategory])
 
     # --------------------
-    # ERP FIELDS
+    # FIELDS
     # --------------------
     fields = [
         "item_code",
@@ -53,7 +55,7 @@ def get_products(
     ]
 
     # --------------------
-    # SORTING LOGIC
+    # SORTING
     # --------------------
     erp_order = "modified desc"  # default
 
@@ -66,7 +68,9 @@ def get_products(
     elif order_by == "newest":
         erp_order = "modified desc"
 
-    # Pagination
+    # --------------------
+    # PAGINATION
+    # --------------------
     start = (page - 1) * page_size
 
     params = {
@@ -78,7 +82,30 @@ def get_products(
     }
 
     # --------------------
-    # ERP REQUEST
+    # TOTAL COUNT (FOR PAGINATION)
+    # --------------------
+    count_params = {
+        "filters": json.dumps(filters),
+        "limit_page_length": 0,
+        "fields": json.dumps(["name"]),
+    }
+
+    count_response = erp_request(
+        "GET",
+        "/api/resource/Item",
+        params=count_params,
+    )
+
+    total_items = len(count_response.get("data", []) or [])
+
+    total_pages = (
+        (total_items + page_size - 1) // page_size
+        if page_size > 0
+        else 1
+    )
+
+    # --------------------
+    # MAIN DATA REQUEST
     # --------------------
     response = erp_request(
         "GET",
@@ -100,7 +127,7 @@ def get_products(
         ]
 
     # --------------------
-    # TRANSFORM RESPONSE
+    # FORMAT RESPONSE
     # --------------------
     formatted_items = [
         {
@@ -121,6 +148,8 @@ def get_products(
         "pagination": {
             "page": page,
             "page_size": page_size,
+            "total_items": total_items,
+            "total_pages": total_pages,
         },
         "last_sync": datetime.now(timezone.utc).isoformat(),
     }
