@@ -8,10 +8,30 @@ class CustomerError(ValueError):
     pass
 
 
+# Allowed ERP Customer Types
+ALLOWED_CUSTOMER_TYPES = {"Individual", "Company", "Partnership"}
+
+
+def _normalize_customer_type(value: Optional[str]) -> str:
+    """
+    Ensures customer_type matches ERP allowed values.
+    Defaults safely to 'Individual'.
+    """
+    if not value:
+        return "Individual"
+
+    value = value.strip().capitalize()
+
+    if value not in ALLOWED_CUSTOMER_TYPES:
+        return "Individual"
+
+    return value
+
+
 def _find_customer_by_phone(phone: str) -> Optional[str]:
     """
-    Search Customer by mobile_number (custom ERP field).
-    Returns ERP name if found.
+    Search ERP Customer by custom field 'mobile_number'.
+    Returns ERP-generated name if found.
     """
 
     filters = [
@@ -36,21 +56,23 @@ def _find_customer_by_phone(phone: str) -> Optional[str]:
 
 def _create_customer(payload: Dict[str, Any]) -> str:
     """
-    Create new Customer in ERP using your custom field structure.
-    Returns ERP auto-generated name.
+    Create new Customer in ERP using your customized field structure.
+    Returns ERP auto-generated name (customer code).
     """
 
     address = payload.get("address") or {}
     contact = payload.get("contact") or {}
 
+    customer_type = _normalize_customer_type(payload.get("customer_type"))
+
     customer_payload = {
         "doctype": "Customer",
 
-        # Core
+        # Core fields
         "customer_name": payload.get("customer_name"),
-        "customer_type": payload.get("customer_type") or "Individual",
-        "customer_group": "Commercial",     # Must match ERP exactly
-        "territory": "Saudi Arabia",        # Must match ERP exactly
+        "customer_type": customer_type,
+        "customer_group": "Commercial",     # MUST match ERP exactly
+        "territory": "Saudi Arabia",        # MUST match ERP exactly
 
         # Custom VAT field
         "custom_vat_registration_number": payload.get("vat_number"),
@@ -71,7 +93,10 @@ def _create_customer(payload: Dict[str, Any]) -> str:
     }
 
     # Remove None values
-    customer_payload = {k: v for k, v in customer_payload.items() if v is not None}
+    customer_payload = {
+        k: v for k, v in customer_payload.items()
+        if v is not None and v != ""
+    }
 
     res = erp_request(
         "POST",
@@ -90,18 +115,18 @@ def _create_customer(payload: Dict[str, Any]) -> str:
 
 def get_or_create_customer(payload: Dict[str, Any]) -> str:
     """
-    Ensures customer exists.
-    Returns ERP customer name (auto-numbered).
+    Ensures customer exists in ERP.
+    Returns ERP auto-generated customer name.
     """
 
     phone = payload.get("phone")
     if not phone:
-        raise CustomerError("Phone is required")
+        raise CustomerError("Phone number is required for customer lookup")
 
-    # 1️⃣ Try find existing
-    existing = _find_customer_by_phone(phone)
-    if existing:
-        return existing
+    # 1️⃣ Try to find existing customer
+    existing_customer = _find_customer_by_phone(phone)
+    if existing_customer:
+        return existing_customer
 
-    # 2️⃣ Create new
+    # 2️⃣ Otherwise create new
     return _create_customer(payload)
