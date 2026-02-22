@@ -29,10 +29,15 @@ def get_products(
     if page_size < 1:
         page_size = DEFAULT_PAGE_SIZE
 
-    # Business Rules (kept intentionally)
+    # Business Rules (disabled for now – future use)
+# filters: List[Any] = [
+#     ["disabled", "=", 0],
+#     ["custom_enable_item", "=", 1],
+# ]
+
+# For now: only exclude disabled items
     filters: List[Any] = [
         ["disabled", "=", 0],
-        ["custom_enable_item", "=", 1],
     ]
 
     # Optional subcategory filter
