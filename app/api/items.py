@@ -12,6 +12,7 @@ router = APIRouter(prefix="", tags=["items"])
 def products(
     category: Optional[str] = None,
     subcategory: Optional[str] = None,
+    search=search,
     page: int = 1,
     page_size: int = 100,
 ):
@@ -26,6 +27,7 @@ def products(
         return get_products(
             category=category,
             subcategory=subcategory,
+            search=search,
             page=page,
             page_size=page_size,
         )
