@@ -1,78 +1,107 @@
-import json
-from typing import Any, Dict, Optional
+from typing import Dict, Any, Optional
 
-from app.core.config import settings
 from app.integrations.erp_client import erp_request
-from app.utils.validators import require_keys
+from app.core.config import settings
 
 
-def get_customer_id_by_phone(phone: str) -> Optional[str]:
-    phone = (phone or "").strip()
-    if not phone:
-        return None
-
-    filters = [[settings.CUSTOMER_PHONE_FIELD, "=", phone]]
-    params = {
-        "filters": json.dumps(filters),
-        "fields": json.dumps(["name"]),
-        "limit_page_length": 1,
-    }
-    res = erp_request("GET", "/api/resource/Customer", params=params)
-    rows = res.get("data", []) or []
-    return rows[0]["name"] if rows else None
+class CustomerError(ValueError):
+    pass
 
 
-def get_or_create_customer(payload: Dict[str, Any]) -> str:
+def _find_customer_by_phone(phone: str) -> Optional[str]:
     """
-    Uses EXACT inputs from your Frappe logic:
-      phone, customer_name, customer_type, vat_number, address, contact
+    Search Customer by mobile_number (custom ERP field).
+    Returns ERP name if found.
     """
-    phone = (payload.get("phone") or "").strip()
-    if not phone:
-        raise ValueError("Phone number is required")
 
-    existing = get_customer_id_by_phone(phone)
-    if existing:
-        return existing
+    filters = [
+        ["Customer", "mobile_number", "=", phone]
+    ]
 
-    # New customer: enforce mandatory fields exactly like your code
-    require_keys(payload, ["customer_name", "customer_type", "vat_number", "address", "contact"])
+    res = erp_request(
+        "GET",
+        "/api/resource/Customer",
+        params={
+            "filters": str(filters),
+            "fields": '["name"]'
+        },
+    )
+
+    data = res.get("data") or []
+    if data:
+        return data[0]["name"]
+
+    return None
+
+
+def _create_customer(payload: Dict[str, Any]) -> str:
+    """
+    Create new Customer in ERP using your custom field structure.
+    Returns ERP auto-generated name.
+    """
 
     address = payload.get("address") or {}
     contact = payload.get("contact") or {}
 
-    # Create Customer
-    cust_payload = {
+    customer_payload = {
+        "doctype": "Customer",
+
+        # Core
         "customer_name": payload.get("customer_name"),
         "customer_type": payload.get("customer_type") or "Individual",
-        "customer_group": "Commercial",
-        "territory": "KSA",
-        "tax_id": payload.get("vat_number"),
-        "phone": phone,
-        "customer_email": contact.get("email") if isinstance(contact, dict) else None,
-    }
-    cust_res = erp_request("POST", "/api/resource/Customer", json=cust_payload)
-    customer_id = (cust_res.get("data") or {}).get("name")
-    if not customer_id:
-        raise Exception("Customer creation failed (no name returned)")
+        "customer_group": "Commercial",     # Must match ERP exactly
+        "territory": "Saudi Arabia",        # Must match ERP exactly
 
-    # Create Address (linked)
-    erp_request("POST", "/api/resource/Address", json={
-        "address_title": payload.get("customer_name"),
+        # Custom VAT field
+        "custom_vat_registration_number": payload.get("vat_number"),
+
+        # Contact mapping (custom ERP fields)
+        "map_to_first_name": contact.get("first_name"),
+        "map_to_last_name": contact.get("last_name"),
+        "email_address": contact.get("email"),
+        "mobile_number": payload.get("phone"),
+
+        # Address mapping (custom ERP fields)
         "address_line1": address.get("address_line1"),
-        "city": address.get("city"),
-        "country": address.get("country"),
+        "address_line2": address.get("street_name"),
         "pincode": address.get("postal_code"),
-        "address_type": address.get("address_type", "Billing"),
-        "links": [{"link_doctype": "Customer", "link_name": customer_id}]
-    })
+        "city": address.get("city"),
+        "state": address.get("state"),
+        "country": address.get("country"),
+    }
 
-    # Create Contact (linked)
-    erp_request("POST", "/api/resource/Contact", json={
-        "first_name": contact.get("first_name"),
-        "email_id": contact.get("email"),
-        "phone": contact.get("phone") or phone,
-        "links": [{"link_doctype": "Customer", "link_name": customer_id}]
-    })
+    # Remove None values
+    customer_payload = {k: v for k, v in customer_payload.items() if v is not None}
+
+    res = erp_request(
+        "POST",
+        "/api/resource/Customer",
+        json=customer_payload,
+    )
+
+    doc = res.get("data") or {}
+    customer_id = doc.get("name")
+
+    if not customer_id:
+        raise CustomerError("Customer creation failed")
 
     return customer_id
+
+
+def get_or_create_customer(payload: Dict[str, Any]) -> str:
+    """
+    Ensures customer exists.
+    Returns ERP customer name (auto-numbered).
+    """
+
+    phone = payload.get("phone")
+    if not phone:
+        raise CustomerError("Phone is required")
+
+    # 1️⃣ Try find existing
+    existing = _find_customer_by_phone(phone)
+    if existing:
+        return existing
+
+    # 2️⃣ Create new
+    return _create_customer(payload)
