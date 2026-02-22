@@ -47,6 +47,15 @@ def get_products(
     if subcategory:
         filters.append(["custom_subcategory", "=", subcategory])
 
+    if search:
+    filters.append([
+        "or",
+        [
+            ["item_name", "like", f"%{search}%"],
+            ["item_code", "like", f"%{search}%"],
+        ],
+    ])
+
     # Fields we request from ERP
     fields = [
         "item_code",
