@@ -12,7 +12,7 @@ router = APIRouter(prefix="", tags=["items"])
 def products(
     category: Optional[str] = None,
     subcategory: Optional[str] = None,
-    search=search,
+    search: Optional[str] = None,
     page: int = 1,
     page_size: int = 100,
 ):
