@@ -1,6 +1,5 @@
-# app/services/item_service.py
-
 import json
+import os
 from typing import Any, Dict, Optional, List
 from datetime import datetime, timezone
 
@@ -8,6 +7,33 @@ from app.integrations.erp_client import erp_request
 
 
 DEFAULT_PAGE_SIZE = 100
+
+# -------------------------------------------------
+# ERP BASE URL (set this in Render environment)
+# Example:
+# ERP_BASE_URL = https://aerictec.frappe.cloud
+# -------------------------------------------------
+ERP_BASE_URL = os.getenv("ERP_BASE_URL", "").rstrip("/")
+
+
+def normalize_image(image_path: Optional[str]) -> str:
+    """
+    Converts relative ERP image paths into full URLs.
+    Leaves full URLs unchanged.
+    """
+    if not image_path:
+        return ""
+
+    # If already a full URL, return as-is
+    if image_path.startswith("http"):
+        return image_path
+
+    # If ERP base URL is configured, prepend it
+    if ERP_BASE_URL:
+        return f"{ERP_BASE_URL}{image_path}"
+
+    # Fallback (in case env not set)
+    return image_path
 
 
 def get_products(
@@ -57,7 +83,7 @@ def get_products(
     # --------------------
     # SORTING
     # --------------------
-    erp_order = "modified desc"  # default
+    erp_order = "modified desc"
 
     if order_by == "price_asc":
         erp_order = "standard_rate asc"
@@ -82,7 +108,7 @@ def get_products(
     }
 
     # --------------------
-    # TOTAL COUNT (FOR PAGINATION)
+    # TOTAL COUNT
     # --------------------
     count_params = {
         "filters": json.dumps(filters),
@@ -116,7 +142,7 @@ def get_products(
     items = response.get("data", []) or []
 
     # --------------------
-    # PYTHON SEARCH (SAFE)
+    # SEARCH FILTER (POST PROCESS)
     # --------------------
     if search:
         search_lower = search.lower()
@@ -135,7 +161,7 @@ def get_products(
             "item_name": item.get("item_name") or "",
             "description": item.get("description") or "",
             "price": item.get("standard_rate") or 0,
-            "image": item.get("image") or "",
+            "image": normalize_image(item.get("image")),
             "category": item.get("item_group") or "Uncategorized",
             "subcategory": item.get("custom_subcategory") or "Other",
         }
