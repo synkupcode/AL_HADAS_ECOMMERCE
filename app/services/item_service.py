@@ -19,24 +19,23 @@ def get_products(
 ) -> Dict[str, Any]:
     """
     Fetch products from ERPNext with:
-    - Business filters
-    - Optional category filter
-    - Optional subcategory filter
-    - Proper pagination
+    - Category filter
+    - Subcategory filter
+    - Search (item_name OR item_code)
+    - Pagination
     - Clean transformed response
     """
 
-    # Validate pagination inputs
+    # Validate pagination
     if page < 1:
         page = 1
 
     if page_size < 1:
         page_size = DEFAULT_PAGE_SIZE
 
-    # Base Business Rule
+    # Base filters
     filters: List[Any] = [
         ["disabled", "=", 0],
-        # ["custom_enable_item", "=", 1],
     ]
 
     # Category filter (ERP field: item_group)
@@ -46,13 +45,6 @@ def get_products(
     # Subcategory filter (custom field)
     if subcategory:
         filters.append(["custom_subcategory", "=", subcategory])
-
-    if search:
-        filters.append([
-            ["item_name", "like", f"%{search}%"],
-            "or",
-            ["item_code", "like", f"%{search}%"],
-        ])
 
     # Fields we request from ERP
     fields = [
@@ -76,7 +68,7 @@ def get_products(
         "order_by": "modified desc",
     }
 
-    # ERP Request
+    # Fetch from ERP
     response = erp_request(
         "GET",
         "/api/resource/Item",
@@ -85,7 +77,18 @@ def get_products(
 
     items = response.get("data", []) or []
 
-    # Transform ERP → API response
+    # ----------------------------
+    # SEARCH FILTER (PYTHON LEVEL)
+    # ----------------------------
+    if search:
+        search_lower = search.lower()
+        items = [
+            item for item in items
+            if search_lower in (item.get("item_name") or "").lower()
+            or search_lower in (item.get("item_code") or "").lower()
+        ]
+
+    # Transform ERP → Clean API structure
     formatted_items = [
         {
             "item_code": item.get("item_code") or "",
