@@ -14,17 +14,10 @@ def get_products(
     category: Optional[str] = None,
     subcategory: Optional[str] = None,
     search: Optional[str] = None,
+    order_by: Optional[str] = None,
     page: int = 1,
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> Dict[str, Any]:
-    """
-    Fetch products from ERPNext with:
-    - Category filter
-    - Subcategory filter
-    - Search (item_name OR item_code)
-    - Pagination
-    - Clean transformed response
-    """
 
     # Validate pagination
     if page < 1:
@@ -33,20 +26,22 @@ def get_products(
     if page_size < 1:
         page_size = DEFAULT_PAGE_SIZE
 
-    # Base filters
+    # --------------------
+    # ERP FILTERS
+    # --------------------
     filters: List[Any] = [
         ["disabled", "=", 0],
     ]
 
-    # Category filter (ERP field: item_group)
     if category:
         filters.append(["item_group", "=", category])
 
-    # Subcategory filter (custom field)
     if subcategory:
         filters.append(["custom_subcategory", "=", subcategory])
 
-    # Fields we request from ERP
+    # --------------------
+    # ERP FIELDS
+    # --------------------
     fields = [
         "item_code",
         "item_name",
@@ -57,6 +52,20 @@ def get_products(
         "item_group",
     ]
 
+    # --------------------
+    # SORTING LOGIC
+    # --------------------
+    erp_order = "modified desc"  # default
+
+    if order_by == "price_asc":
+        erp_order = "standard_rate asc"
+
+    elif order_by == "price_desc":
+        erp_order = "standard_rate desc"
+
+    elif order_by == "newest":
+        erp_order = "modified desc"
+
     # Pagination
     start = (page - 1) * page_size
 
@@ -65,10 +74,12 @@ def get_products(
         "fields": json.dumps(fields),
         "limit_start": start,
         "limit_page_length": page_size,
-        "order_by": "modified desc",
+        "order_by": erp_order,
     }
 
-    # Fetch from ERP
+    # --------------------
+    # ERP REQUEST
+    # --------------------
     response = erp_request(
         "GET",
         "/api/resource/Item",
@@ -77,9 +88,9 @@ def get_products(
 
     items = response.get("data", []) or []
 
-    # ----------------------------
-    # SEARCH FILTER (PYTHON LEVEL)
-    # ----------------------------
+    # --------------------
+    # PYTHON SEARCH (SAFE)
+    # --------------------
     if search:
         search_lower = search.lower()
         items = [
@@ -88,7 +99,9 @@ def get_products(
             or search_lower in (item.get("item_code") or "").lower()
         ]
 
-    # Transform ERP → Clean API structure
+    # --------------------
+    # TRANSFORM RESPONSE
+    # --------------------
     formatted_items = [
         {
             "item_code": item.get("item_code") or "",
