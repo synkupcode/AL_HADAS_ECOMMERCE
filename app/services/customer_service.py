@@ -1,4 +1,5 @@
 from typing import Dict, Any, Optional
+import json
 
 from app.integrations.erp_client import erp_request
 
@@ -38,15 +39,15 @@ def _find_customer_by_phone(phone: str) -> Optional[str]:
     """
 
     filters = [
-        ["Customer", "mobile_number", "=", phone]
+        ["mobile_number", "=", phone]
     ]
 
     res = erp_request(
         "GET",
         "/api/resource/Customer",
         params={
-            "filters": str(filters),
-            "fields": '["name"]'
+            "filters": json.dumps(filters),     # ✅ Proper JSON
+            "fields": json.dumps(["name"])      # ✅ Proper JSON
         },
     )
 
@@ -70,18 +71,18 @@ def _create_customer(payload: Dict[str, Any]) -> str:
     customer_payload = {
         "doctype": "Customer",
 
-        # Core Fields (from your ERP form)
+        # Core Fields
         "customer_name": payload.get("customer_name"),
         "customer_type": _normalize_customer_type(payload.get("customer_type")),
         "custom_vat_registration_number": payload.get("vat_number"),
 
-        # Primary Contact Fields
+        # Primary Contact
         "map_to_first_name": contact.get("first_name"),
         "map_to_last_name": contact.get("last_name"),
         "email_address": contact.get("email"),
         "mobile_number": payload.get("phone"),
 
-        # Primary Address Fields
+        # Primary Address
         "address_line1": address.get("address_line1"),
         "address_line2": address.get("address_line2"),
         "pincode": address.get("postal_code"),
@@ -145,3 +146,4 @@ def get_or_create_customer(payload: Dict[str, Any]) -> str:
 
     # 2️⃣ Create new customer
     return _create_customer(payload)
+    
