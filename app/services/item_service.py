@@ -1,4 +1,5 @@
 # app/services/item_service.py
+
 import json
 from typing import Any, Dict, Optional, List
 from datetime import datetime, timezone
@@ -10,6 +11,7 @@ DEFAULT_PAGE_SIZE = 100
 
 
 def get_products(
+    category: Optional[str] = None,
     subcategory: Optional[str] = None,
     page: int = 1,
     page_size: int = DEFAULT_PAGE_SIZE,
@@ -17,6 +19,7 @@ def get_products(
     """
     Fetch products from ERPNext with:
     - Business filters
+    - Optional category filter
     - Optional subcategory filter
     - Proper pagination
     - Clean transformed response
@@ -29,22 +32,21 @@ def get_products(
     if page_size < 1:
         page_size = DEFAULT_PAGE_SIZE
 
-    # Business Rules (disabled for now – future use)
-# filters: List[Any] = [
-#     ["disabled", "=", 0],
-#     ["custom_enable_item", "=", 1],
-# ]
-
-# For now: only exclude disabled items
+    # Base Business Rule
     filters: List[Any] = [
         ["disabled", "=", 0],
+        # ["custom_enable_item", "=", 1],
     ]
 
-    # Optional subcategory filter
+    # Category filter (ERP field: item_group)
+    if category:
+        filters.append(["item_group", "=", category])
+
+    # Subcategory filter (custom field)
     if subcategory:
         filters.append(["custom_subcategory", "=", subcategory])
 
-    # Fields we expose to frontend (controlled schema)
+    # Fields we request from ERP
     fields = [
         "item_code",
         "item_name",
@@ -55,7 +57,7 @@ def get_products(
         "item_group",
     ]
 
-    # Pagination calculation
+    # Pagination
     start = (page - 1) * page_size
 
     params = {
@@ -75,7 +77,7 @@ def get_products(
 
     items = response.get("data", []) or []
 
-    # Transform ERP structure → Clean API structure
+    # Transform ERP → API response
     formatted_items = [
         {
             "item_code": item.get("item_code") or "",
