@@ -6,9 +6,6 @@ from app.integrations.erp_client import erp_request
 from app.services.customer_service import get_or_create_customer
 
 
-MAX_QTY_PER_ITEM = 1000
-
-
 class OrderValidationError(ValueError):
     pass
 
@@ -20,7 +17,7 @@ def _now_date():
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     # -------------------------
-    # VALIDATION
+    # BASIC VALIDATION
     # -------------------------
 
     cart: List[Dict[str, Any]] = payload.get("cart", [])
@@ -34,12 +31,15 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise OrderValidationError("Phone number is required")
 
     address = payload.get("address") or {}
+    contact = payload.get("contact") or {}
 
     required_address_fields = [
-        "address_line1",
+        "building_no",
         "postal_code",
+        "street_name",
         "city",
         "country",
+        "full_address"
     ]
 
     for field in required_address_fields:
@@ -47,65 +47,74 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             raise OrderValidationError(f"{field} is required")
 
     # -------------------------
-    # CUSTOMER (AUTO-NUMBER SAFE)
+    # ENSURE CUSTOMER EXISTS
     # -------------------------
 
     customer_id = get_or_create_customer(payload)
 
     # -------------------------
-    # PREPARE ITEMS
+    # PREPARE CHILD TABLE ITEMS
     # -------------------------
 
-    preview_items = []
+    items_payload = []
 
     for item in cart:
-        if not item.get("item_code") or not item.get("qty"):
-            raise OrderValidationError("Invalid cart item")
+
+        if not item.get("item_code"):
+            raise OrderValidationError("Item code is required")
+
+        if not item.get("qty"):
+            raise OrderValidationError("Quantity is required")
 
         qty = float(item["qty"])
-
         if qty <= 0:
             raise OrderValidationError("Quantity must be greater than zero")
 
-        if qty > MAX_QTY_PER_ITEM:
-            raise OrderValidationError("Quantity exceeds allowed limit")
+        unit_price = float(item.get("unit_price", 0))
+        amount = qty * unit_price
 
-        preview_items.append({
+        items_payload.append({
             "item_code": item["item_code"],
-            "quantity": qty  # Must match ERP child table field
+            "item_name": item.get("item_name"),
+            "quantity": qty,
+            "unit_pricex": unit_price,
+            "uom": item.get("uom"),
+            "amount": amount,
         })
 
     # -------------------------
-    # BUILD ERP PAYLOAD
+    # BUILD RFQ PAYLOAD
     # -------------------------
 
     rfq_payload = {
         "doctype": settings.ECOM_RFQ_DOCTYPE,
 
-        # Proper ERP link
-        "customer": customer_id,
-
-        # Snapshot fields
+        # Customer Information
         "customer_name": payload.get("customer_name"),
-        "email_id": payload.get("contact", {}).get("email"),
+        "email_id": contact.get("email"),
         "company_name": payload.get("company_name"),
         "phone_number": payload.get("phone"),
         "cr_no": payload.get("cr_no"),
         "vat_id": payload.get("vat_number"),
 
-        "address_line1": address.get("address_line1"),
+        # Address Information
+        "building_no": address.get("building_no"),
         "postal_code": address.get("postal_code"),
+        "street_name": address.get("street_name"),
+        "district": address.get("district"),
         "city": address.get("city"),
         "country": address.get("country"),
+        "full_address": address.get("full_address"),
 
-        # Child table
-        settings.ECOM_RFQ_ITEM_TABLE_FIELD: preview_items,
-
-        "transaction_date": _now_date(),
-        "notes": payload.get("notes", "")
+        # Child Table
+        "item_table": items_payload,
     }
 
-    rfq_payload = {k: v for k, v in rfq_payload.items() if v is not None}
+    # Remove empty values
+    rfq_payload = {
+        k: v for k, v in rfq_payload.items()
+        if v not in (None, "", [])
+    }
 
     # -------------------------
     # CREATE RFQ IN ERP
@@ -131,5 +140,5 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
         "status": "submitted",
         "ecommerce_rfq_id": rfq_id,
         "customer_id": customer_id,
-        "created_at": _now_date()
+        "created_at": _now_date(),
     }
