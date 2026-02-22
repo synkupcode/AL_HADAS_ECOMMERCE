@@ -13,6 +13,7 @@ DEFAULT_PAGE_SIZE = 100
 def get_products(
     category: Optional[str] = None,
     subcategory: Optional[str] = None,
+    search: Optional[str] = None,
     page: int = 1,
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> Dict[str, Any]:
