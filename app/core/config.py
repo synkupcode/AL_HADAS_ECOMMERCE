@@ -41,7 +41,7 @@ class Settings:
     # -------------------------
     # CUSTOMER FIELD
     # -------------------------
-    CUSTOMER_PHONE_FIELD: str = "mobile_no"
+    CUSTOMER_PHONE_FIELD: str = "phone"
 
 
 settings = Settings()
