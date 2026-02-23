@@ -1,39 +1,112 @@
-from typing import Optional
-import json
-from app.core.config import settings
+from typing import Dict, Any
 from app.integrations.erp_client import erp_request
 
 
-def get_customer_id_by_phone(phone: str) -> Optional[str]:
-    """
-    Searches Customer by phone.
+class CustomerError(ValueError):
+    pass
 
-    NOTE:
-    This only works if phone is stored in Customer
-    as a custom field (e.g., phone or mobile_number).
 
-    If you follow ERPNext standard design,
-    phone should be searched in Contact instead.
-    """
+ALLOWED_CUSTOMER_TYPES = {"Individual", "Company", "Partnership"}
 
-    if not phone:
-        return None
 
-    # Use configured field name
-    filters = [settings.CUSTOMER_PHONE_FIELD, "=", phone]
+def _normalize_customer_type(value: str | None) -> str:
+    if not value:
+        return "Individual"
+
+    value = value.strip().capitalize()
+
+    if value not in ALLOWED_CUSTOMER_TYPES:
+        return "Individual"
+
+    return value
+
+
+# -----------------------------
+# CREATE CUSTOMER
+# -----------------------------
+def create_customer(payload: Dict[str, Any]) -> str:
+
+    customer_payload = {
+        "doctype": "Customer",
+        "customer_name": payload.get("customer_name"),
+        "customer_type": _normalize_customer_type(payload.get("customer_type")),
+        "customer_group": payload.get("customer_group") or "Individual",
+        "territory": payload.get("territory") or "All Territories",
+        "custom_vat_registration_number": payload.get("vat_number"),
+    }
+
+    customer_payload = {
+        k: v for k, v in customer_payload.items()
+        if v not in (None, "")
+    }
 
     res = erp_request(
-        "GET",
+        "POST",
         "/api/resource/Customer",
-        params={
-            "filters": json.dumps(filters),
-            "fields": json.dumps(["name"]),
-        },
+        json=customer_payload,
     )
 
-    data = res.get("data") or []
+    doc = res.get("data") or {}
+    customer_id = doc.get("name")
 
-    if data:
-        return data[0].get("name")
+    if not customer_id:
+        raise CustomerError("Customer creation failed")
 
-    return None
+    return customer_id
+
+
+# -----------------------------
+# CREATE CONTACT
+# -----------------------------
+def create_contact(customer_id: str, payload: Dict[str, Any]) -> None:
+
+    phone = payload.get("phone")
+    contact = payload.get("contact") or {}
+
+    if not phone and not contact:
+        return
+
+    contact_payload = {
+        "doctype": "Contact",
+        "first_name": contact.get("first_name") or payload.get("customer_name"),
+        "email_ids": [
+            {
+                "email_id": contact.get("email"),
+                "is_primary": 1
+            }
+        ] if contact.get("email") else [],
+        "phone_nos": [
+            {
+                "phone": phone,
+                "is_primary_mobile": 1
+            }
+        ] if phone else [],
+        "links": [
+            {
+                "link_doctype": "Customer",
+                "link_name": customer_id
+            }
+        ]
+    }
+
+    contact_payload = {k: v for k, v in contact_payload.items() if v}
+
+    erp_request(
+        "POST",
+        "/api/resource/Contact",
+        json=contact_payload,
+    )
+
+
+# -----------------------------
+# MAIN FUNCTION
+# -----------------------------
+def get_or_create_customer(payload: Dict[str, Any]) -> str:
+
+    if not payload.get("customer_name"):
+        raise CustomerError("Customer name is required")
+
+    customer_id = create_customer(payload)
+    create_contact(customer_id, payload)
+
+    return customer_id
