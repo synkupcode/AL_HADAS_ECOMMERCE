@@ -1,6 +1,6 @@
 from typing import Dict, Any, Optional
 import json
-
+from app.core.config import settings
 from app.integrations.erp_client import erp_request
 
 
@@ -24,7 +24,7 @@ def _normalize_customer_type(value: Optional[str]) -> str:
 
 
 def _find_customer_by_phone(phone: str) -> Optional[str]:
-    filters = [["mobile_number", "=", phone]]
+    filters = [settings.CUSTOMER_PHONE_FIELD, "=", phone]
 
     res = erp_request(
         "GET",
