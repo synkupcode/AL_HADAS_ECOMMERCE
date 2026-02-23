@@ -1,18 +1,28 @@
 from __future__ import annotations
 import requests
-from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
 from typing import Any, Optional
+import time
+from requests.exceptions import RequestException
 from app.core.config import settings
 
 class ERPError(Exception):
-    pass
+    """Structured exception for ERP request failures."""
+    def __init__(self, message: str, status_code: int = None):
+        super().__init__(message)
+        self.status_code = status_code
 
-session = requests.Session()
-retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[500,502,503,504])
-session.mount("https://", HTTPAdapter(max_retries=retries))
 
-def erp_request(method: str, path: str, params: Optional[dict[str, Any]] = None, json: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def erp_request(
+    method: str,
+    path: str,
+    params: Optional[dict[str, Any]] = None,
+    json: Optional[dict[str, Any]] = None,
+    retries: int = 3,
+    backoff_factor: float = 1.0,
+) -> dict[str, Any]:
+    """
+    Makes a request to ERP API with retries and structured errors.
+    """
     if not settings.ERP_BASE_URL:
         raise ERPError("ERP_BASE_URL not configured.")
     if not settings.ERP_API_KEY or not settings.ERP_API_SECRET:
@@ -25,22 +35,29 @@ def erp_request(method: str, path: str, params: Optional[dict[str, Any]] = None,
         "Accept": "application/json",
     }
 
-    try:
-        response = session.request(
-            method=method.upper(),
-            url=url,
-            headers=headers,
-            params=params,
-            json=json,
-            timeout=30,
-        )
-    except requests.RequestException as exc:
-        raise ERPError(f"ERP connection failed: {exc}") from exc
+    attempt = 0
+    while attempt < retries:
+        try:
+            response = requests.request(
+                method=method.upper(),
+                url=url,
+                headers=headers,
+                params=params,
+                json=json,
+                timeout=30,
+            )
+        except RequestException as exc:
+            attempt += 1
+            if attempt >= retries:
+                raise ERPError(f"ERP connection failed after {retries} attempts: {exc}") from exc
+            time.sleep(backoff_factor * attempt)
+            continue
 
-    if response.status_code >= 400:
-        raise ERPError(f"ERP error {response.status_code}: {response.text}")
+        # Handle HTTP errors
+        if response.status_code >= 400:
+            raise ERPError(f"ERP error {response.status_code}: {response.text}", status_code=response.status_code)
 
-    try:
-        return response.json()
-    except ValueError:
-        raise ERPError(f"Invalid ERP response: {response.text}")
+        try:
+            return response.json()
+        except ValueError:
+            raise ERPError(f"Invalid ERP JSON response: {response.text}")
