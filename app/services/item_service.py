@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Optional, List, Tuple
+from typing import Any, Dict, Optional, List
 from datetime import datetime, timezone
 
 from app.integrations.erp_client import erp_request
@@ -7,6 +7,23 @@ from app.services.ecommerce.visibility_engine import apply_visibility_rules
 from app.services.ecommerce.pricing_engine import apply_pricing_rules
 
 DEFAULT_PAGE_SIZE = 100
+
+ERP_BASE_URL = ""  # Keep blank, use normalize_image from utils if needed
+
+
+def normalize_image(image_path: Optional[str]) -> str:
+    """
+    Converts relative ERP image paths into full URLs.
+    Leaves full URLs unchanged.
+    """
+    if not image_path:
+        return ""
+    if image_path.startswith("http"):
+        return image_path
+    from app.core.config import settings
+    if settings.ERP_BASE_URL:
+        return f"{settings.ERP_BASE_URL}{image_path}"
+    return image_path
 
 
 def get_products(
@@ -23,16 +40,21 @@ def get_products(
     if page_size < 1:
         page_size = DEFAULT_PAGE_SIZE
 
+    # -------------------------
+    # FILTERS
+    # -------------------------
     filters: List[Any] = [
         ["disabled", "=", 0],
-        ["custom_enable_item", "=", 1],
+        ["custom_enable_item", "=", 1],  # Only items enabled for ecommerce
     ]
-
     if category:
         filters.append(["item_group", "=", category])
     if subcategory:
         filters.append(["custom_subcategory", "=", subcategory])
 
+    # -------------------------
+    # FIELDS
+    # -------------------------
     fields = [
         "item_code",
         "item_name",
@@ -79,14 +101,18 @@ def get_products(
         "fields": json.dumps(fields),
         "limit_start": start,
         "limit_page_length": page_size,
-        "order_by": "modified desc" if order_by == "newest" else "modified desc",
+        "order_by": (
+            "standard_rate asc" if order_by == "price_asc" else
+            "standard_rate desc" if order_by == "price_desc" else
+            "modified desc"
+        ),
     }
 
     response = erp_request("GET", "/api/resource/Item", params=params)
     items = response.get("data", []) or []
 
     # -----------------------------
-    # SEARCH
+    # SEARCH FILTER (POST PROCESS)
     # -----------------------------
     if search:
         search_lower = search.lower()
@@ -97,13 +123,17 @@ def get_products(
         ]
 
     # -----------------------------
-    # APPLY ENGINES
+    # APPLY PRICING & VISIBILITY
     # -----------------------------
     formatted_items = []
 
     for item in items:
+        # Apply ecommerce pricing rules
         item = apply_pricing_rules(item)
+        # Apply visibility rules
         item = apply_visibility_rules(item)
+        # Normalize image URL
+        item["image"] = normalize_image(item.get("image"))
 
         formatted_items.append({
             "item_code": item.get("item_code"),
