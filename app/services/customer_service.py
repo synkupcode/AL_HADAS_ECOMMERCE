@@ -8,19 +8,10 @@ class CustomerError(ValueError):
     pass
 
 
-# Allowed values from your ERP Customer form
 ALLOWED_CUSTOMER_TYPES = {"Individual", "Company", "Partnership"}
 
 
-# -------------------------
-# INTERNAL HELPERS
-# -------------------------
-
 def _normalize_customer_type(value: Optional[str]) -> str:
-    """
-    Ensures customer_type matches ERP allowed values.
-    Defaults safely to 'Individual'.
-    """
     if not value:
         return "Individual"
 
@@ -33,21 +24,14 @@ def _normalize_customer_type(value: Optional[str]) -> str:
 
 
 def _find_customer_by_phone(phone: str) -> Optional[str]:
-    """
-    Search ERP Customer by custom field 'mobile_number'.
-    Returns ERP-generated name if found.
-    """
-
-    filters = [
-        ["mobile_number", "=", phone]
-    ]
+    filters = [["mobile_number", "=", phone]]
 
     res = erp_request(
         "GET",
         "/api/resource/Customer",
         params={
-            "filters": json.dumps(filters),     # ✅ Proper JSON
-            "fields": json.dumps(["name"])      # ✅ Proper JSON
+            "filters": json.dumps(filters),
+            "fields": json.dumps(["name"]),
         },
     )
 
@@ -59,30 +43,19 @@ def _find_customer_by_phone(phone: str) -> Optional[str]:
 
 
 def _create_customer(payload: Dict[str, Any]) -> str:
-    """
-    Create new Customer in ERP.
-    ERP auto-numbering will generate the customer code.
-    Returns ERP-generated name.
-    """
 
     address = payload.get("address") or {}
     contact = payload.get("contact") or {}
 
     customer_payload = {
         "doctype": "Customer",
-
-        # Core Fields
         "customer_name": payload.get("customer_name"),
         "customer_type": _normalize_customer_type(payload.get("customer_type")),
         "custom_vat_registration_number": payload.get("vat_number"),
-
-        # Primary Contact
         "map_to_first_name": contact.get("first_name"),
         "map_to_last_name": contact.get("last_name"),
         "email_address": contact.get("email"),
         "mobile_number": payload.get("phone"),
-
-        # Primary Address
         "address_line1": address.get("address_line1"),
         "address_line2": address.get("address_line2"),
         "pincode": address.get("postal_code"),
@@ -91,7 +64,6 @@ def _create_customer(payload: Dict[str, Any]) -> str:
         "country": address.get("country"),
     }
 
-    # Remove empty values
     customer_payload = {
         k: v for k, v in customer_payload.items()
         if v not in (None, "")
@@ -112,38 +84,14 @@ def _create_customer(payload: Dict[str, Any]) -> str:
     return customer_id
 
 
-# -------------------------
-# PUBLIC FUNCTIONS
-# -------------------------
-
-def get_customer_id_by_phone(phone: str) -> Optional[str]:
-    """
-    Public lookup function.
-    Used by customers API.
-    Does NOT create customer.
-    """
-    if not phone:
-        raise CustomerError("Phone number is required")
-
-    return _find_customer_by_phone(phone)
-
-
 def get_or_create_customer(payload: Dict[str, Any]) -> str:
-    """
-    Used by checkout flow.
-    Ensures customer exists in ERP.
-    Returns ERP auto-generated customer ID.
-    """
 
     phone = payload.get("phone")
     if not phone:
-        raise CustomerError("Phone number is required")
+        raise CustomerError("Phone number required")
 
-    # 1️⃣ Try to find existing customer
     existing = _find_customer_by_phone(phone)
     if existing:
         return existing
 
-    # 2️⃣ Create new customer
     return _create_customer(payload)
-    
