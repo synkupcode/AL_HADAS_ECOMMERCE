@@ -29,13 +29,9 @@ class Settings:
     FRONTEND_SECRET_TOKEN: str = os.getenv("FRONTEND_SECRET_TOKEN", "")
 
     # -------------------------
-    # DOCTYPE
+    # DOCTYPE (RFQ)
     # -------------------------
     ECOM_RFQ_DOCTYPE: str = "E-Commerce RFQ"
-    CUSTOMER_PHONE_FIELD: str = "mobile_number"
-    # -------------------------
-    # ITEM TABLE FIELD
-    # -------------------------
     ECOM_RFQ_ITEM_TABLE_FIELD: str = "item_table"
 
 
