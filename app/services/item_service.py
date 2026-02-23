@@ -65,9 +65,10 @@ def get_products(
         filters.append(["custom_subcategory", "=", subcategory])
 
     # --------------------
-    # FIELDS (Include All Ecommerce Fields)
+    # FIELDS (ALL Ecommerce Fields)
     # --------------------
     fields = [
+        # Basic
         "item_code",
         "item_name",
         "custom_subcategory",
@@ -81,6 +82,9 @@ def get_products(
         "custom_mrp_price",
         "custom_fixed_price",
         "custom_mrp_rate",
+
+        # Promotion Fields
+        "custom_enable_promotion",
         "custom_promotion_base_price",
         "custom_promotion_type",
         "custom_promotion_discount_",
@@ -90,7 +94,11 @@ def get_products(
         "custom_promotional_price",
         "custom_promotional_rate",
         "custom_show_strike_price",
-        "custom_enable_promotion",
+
+        # Visibility Fields
+        "custom_show_price",
+        "custom_show_image",
+        "custom_show_stock",
     ]
 
     # --------------------
@@ -98,14 +106,10 @@ def get_products(
     # --------------------
     erp_order = "modified desc"
 
-    if order_by == "price_asc":
-        erp_order = "modified desc"  # price sorting can be enhanced later
-
-    elif order_by == "price_desc":
+    if order_by == "newest":
         erp_order = "modified desc"
 
-    elif order_by == "newest":
-        erp_order = "modified desc"
+    # (price sorting intentionally deferred because price is computed)
 
     # --------------------
     # PAGINATION
@@ -125,8 +129,8 @@ def get_products(
     # --------------------
     count_params = {
         "filters": json.dumps(filters),
-        "limit_page_length": 0,
         "fields": json.dumps(["name"]),
+        "limit_page_length": 0,
     }
 
     count_response = erp_request(
@@ -191,7 +195,7 @@ def get_products(
         })
 
     # --------------------
-    # FINAL RESPONSE (UNCHANGED STRUCTURE)
+    # FINAL RESPONSE (FRONTEND SAFE)
     # --------------------
     return {
         "status": "success",
