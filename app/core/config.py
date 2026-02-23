@@ -32,7 +32,7 @@ class Settings:
     # DOCTYPE
     # -------------------------
     ECOM_RFQ_DOCTYPE: str = "E-Commerce RFQ"
-
+    CUSTOMER_PHONE_FIELD: str = "phone"
     # -------------------------
     # ITEM TABLE FIELD
     # -------------------------
