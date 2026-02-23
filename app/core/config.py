@@ -1,4 +1,3 @@
-
 import os
 from dotenv import load_dotenv
 
@@ -7,6 +6,7 @@ load_dotenv()
 
 def _split_csv(value: str) -> list[str]:
     return [v.strip() for v in (value or "").split(",") if v.strip()]
+
 
 class Settings:
     # -------------------------
@@ -19,7 +19,9 @@ class Settings:
     # -------------------------
     # CORS
     # -------------------------
-    ALLOWED_ORIGINS: list[str] = _split_csv(os.getenv("ALLOWED_ORIGINS", "*"))
+    ALLOWED_ORIGINS: list[str] = _split_csv(
+        os.getenv("ALLOWED_ORIGINS", "*")
+    )
 
     # -------------------------
     # FRONTEND SECURITY
@@ -31,11 +33,6 @@ class Settings:
     # -------------------------
     ECOM_RFQ_DOCTYPE: str = "E-Commerce RFQ"
     ECOM_RFQ_ITEM_TABLE_FIELD: str = "item_table"
-    # -------------------------
-    # Optional: Engine defaults
-    # -------------------------
-    DEFAULT_PAGE_SIZE: int = 100
-    MAX_PAGE_SIZE: int = 100
 
 
 settings = Settings()
