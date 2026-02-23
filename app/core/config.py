@@ -38,10 +38,5 @@ class Settings:
     # -------------------------
     ECOM_RFQ_ITEM_TABLE_FIELD: str = "item_table"
 
-    # -------------------------
-    # CUSTOMER FIELD
-    # -------------------------
-    CUSTOMER_PHONE_FIELD: str = "phone"
-
 
 settings = Settings()
