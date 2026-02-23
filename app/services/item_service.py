@@ -2,16 +2,15 @@ import json
 import os
 from typing import Any, Dict, Optional, List
 from datetime import datetime, timezone
-from app.services.ecommerce.ecommerce_engine import EcommerceEngine
+
 from app.integrations.erp_client import erp_request
+from app.services.ecommerce.ecommerce_engine import EcommerceEngine
 
 
 DEFAULT_PAGE_SIZE = 100
 
 # -------------------------------------------------
-# ERP BASE URL (set this in Render environment)
-# Example:
-# ERP_BASE_URL = https://aerictec.frappe.cloud
+# ERP BASE URL (used for image normalization)
 # -------------------------------------------------
 ERP_BASE_URL = os.getenv("ERP_BASE_URL", "").rstrip("/")
 
@@ -24,15 +23,12 @@ def normalize_image(image_path: Optional[str]) -> str:
     if not image_path:
         return ""
 
-    # If already a full URL, return as-is
     if image_path.startswith("http"):
         return image_path
 
-    # If ERP base URL is configured, prepend it
     if ERP_BASE_URL:
         return f"{ERP_BASE_URL}{image_path}"
 
-    # Fallback (in case env not set)
     return image_path
 
 
@@ -55,11 +51,11 @@ def get_products(
         page_size = DEFAULT_PAGE_SIZE
 
     # --------------------
-    # FILTERS
+    # FILTERS (ERP LEVEL)
     # --------------------
     filters: List[Any] = [
         ["disabled", "=", 0],
-        ["custom_enable_item", "=", 1],
+        ["custom_enable_item", "=", 1],  # Website visibility control
     ]
 
     if category:
@@ -69,7 +65,7 @@ def get_products(
         filters.append(["custom_subcategory", "=", subcategory])
 
     # --------------------
-    # FIELDS
+    # FIELDS (Include All Ecommerce Fields)
     # --------------------
     fields = [
         "item_code",
@@ -77,8 +73,24 @@ def get_products(
         "custom_subcategory",
         "image",
         "description",
-        "standard_rate",
         "item_group",
+
+        # Pricing Fields
+        "custom_standard_selling_price",
+        "custom_ecommerce_price",
+        "custom_mrp_price",
+        "custom_fixed_price",
+        "custom_mrp_rate",
+        "custom_promotion_base_price",
+        "custom_promotion_type",
+        "custom_promotion_discount_",
+        "custom_promotion_start",
+        "custom_promotion_end",
+        "custom_promotion_price_manual",
+        "custom_promotional_price",
+        "custom_promotional_rate",
+        "custom_show_strike_price",
+        "custom_enable_promotion",
     ]
 
     # --------------------
@@ -87,10 +99,10 @@ def get_products(
     erp_order = "modified desc"
 
     if order_by == "price_asc":
-        erp_order = "standard_rate asc"
+        erp_order = "modified desc"  # price sorting can be enhanced later
 
     elif order_by == "price_desc":
-        erp_order = "standard_rate desc"
+        erp_order = "modified desc"
 
     elif order_by == "newest":
         erp_order = "modified desc"
@@ -143,7 +155,7 @@ def get_products(
     items = response.get("data", []) or []
 
     # --------------------
-    # SEARCH FILTER (POST PROCESS)
+    # SEARCH FILTER (POST-PROCESS)
     # --------------------
     if search:
         search_lower = search.lower()
@@ -154,24 +166,33 @@ def get_products(
         ]
 
     # --------------------
-    # FORMAT RESPONSE
+    # APPLY ECOMMERCE ENGINE
     # --------------------
     formatted_items = []
 
     for item in items:
-    
-        transformed = EcommerceEngine.transform_item(item)
-    
+
+        ecommerce_data = EcommerceEngine.transform_item(item)
+
         formatted_items.append({
             "item_code": item.get("item_code") or "",
             "item_name": item.get("item_name") or "",
             "description": item.get("description") or "",
-            **transformed,
-            "image": normalize_image(transformed["image"]),
+            "price": ecommerce_data["price"],
+            "original_price": ecommerce_data["original_price"],
+            "discount_percentage": ecommerce_data["discount_percentage"],
+            "is_on_sale": ecommerce_data["is_on_sale"],
+            "image": normalize_image(ecommerce_data["image"]),
             "category": item.get("item_group") or "Uncategorized",
             "subcategory": item.get("custom_subcategory") or "Other",
+            "stock_status": ecommerce_data["stock_status"],
+            "is_price_visible": ecommerce_data["is_price_visible"],
+            "is_image_visible": ecommerce_data["is_image_visible"],
         })
 
+    # --------------------
+    # FINAL RESPONSE (UNCHANGED STRUCTURE)
+    # --------------------
     return {
         "status": "success",
         "items": formatted_items,
