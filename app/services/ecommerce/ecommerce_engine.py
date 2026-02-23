@@ -1,111 +1,186 @@
-from datetime import date, datetime
-from typing import Dict, Any
-
-
-def _is_enabled(value) -> bool:
-    """
-    ERP checkbox safety:
-    Handles 1, "1", True safely.
-    """
-    return str(value) == "1"
+from datetime import datetime, date
+from typing import Dict, Any, Optional
 
 
 class EcommerceEngine:
 
-    # -------------------------------------------------
-    # PROMOTION CHECK
-    # -------------------------------------------------
+    # -----------------------------------------------------
+    # Helpers
+    # -----------------------------------------------------
+
+    @staticmethod
+    def _to_int(value) -> int:
+        """Safely convert ERP values ('1', 1, None) to int."""
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _to_float(value) -> Optional[float]:
+        """Safely convert price values to float."""
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _parse_date(value) -> Optional[date]:
+        """
+        Handles:
+        - date object
+        - datetime object
+        - YYYY-MM-DD
+        - YYYY-MM-DD HH:MM:SS
+        - DD-MM-YYYY  (Your ERP format)
+        """
+
+        if not value:
+            return None
+
+        if isinstance(value, date):
+            return value
+
+        if isinstance(value, datetime):
+            return value.date()
+
+        value_str = str(value).strip()
+
+        # ISO format
+        try:
+            return datetime.fromisoformat(value_str).date()
+        except Exception:
+            pass
+
+        # YYYY-MM-DD HH:MM:SS
+        try:
+            return datetime.strptime(value_str, "%Y-%m-%d %H:%M:%S").date()
+        except Exception:
+            pass
+
+        # YYYY-MM-DD
+        try:
+            return datetime.strptime(value_str, "%Y-%m-%d").date()
+        except Exception:
+            pass
+
+        # DD-MM-YYYY (ERP Date format)
+        try:
+            return datetime.strptime(value_str, "%d-%m-%Y").date()
+        except Exception:
+            pass
+
+        return None
+
+    # -----------------------------------------------------
+    # Promotion Activation
+    # -----------------------------------------------------
+
     @staticmethod
     def is_promotion_active(item: Dict[str, Any]) -> bool:
-        if not _is_enabled(item.get("custom_enable_promotion")):
+
+        if EcommerceEngine._to_int(item.get("custom_enable_promotion")) != 1:
+            return False
+
+        start = EcommerceEngine._parse_date(item.get("custom_promotion_start"))
+        end = EcommerceEngine._parse_date(item.get("custom_promotion_end"))
+
+        if not start or not end:
             return False
 
         today = date.today()
 
-        start_raw = item.get("custom_promotion_start")
-        end_raw = item.get("custom_promotion_end")
-
-        if not start_raw or not end_raw:
-            return False
-
-        try:
-            # ERP returns date fields as string "YYYY-MM-DD"
-            start = datetime.strptime(start_raw, "%Y-%m-%d").date()
-            end = datetime.strptime(end_raw, "%Y-%m-%d").date()
-        except Exception:
-            return False  # Fail safe if format unexpected
-
         return start <= today <= end
 
-    # -------------------------------------------------
-    # PRICE RESOLUTION
-    # -------------------------------------------------
-    @staticmethod
-    def resolve_price(item: Dict[str, Any]):
+    # -----------------------------------------------------
+    # Price Resolver (3 Pricing Modes)
+    # -----------------------------------------------------
 
-        # 1️⃣ PROMOTION MODE (Highest Priority)
+    @staticmethod
+    def resolve_price(item: Dict[str, Any]) -> Optional[float]:
+
+        # 1️⃣ FIXED MODE
+        if EcommerceEngine._to_int(item.get("custom_fixed_price")) == 1:
+            return EcommerceEngine._to_float(
+                item.get("custom_ecommerce_price")
+            )
+
+        # 2️⃣ MRP MODE
+        if EcommerceEngine._to_int(item.get("custom_mrp_rate")) == 1:
+            return EcommerceEngine._to_float(
+                item.get("custom_mrp_price")
+            )
+
+        # 3️⃣ PROMOTION MODE
         if EcommerceEngine.is_promotion_active(item):
 
-            # Promotion must allow showing price
-            if not _is_enabled(item.get("custom_promotional_rate")):
+            # Promotion price visibility
+            if EcommerceEngine._to_int(item.get("custom_promotional_rate")) != 1:
                 return None
 
-            # Manual or ERP calculated
+            # Promotion type
             if item.get("custom_promotion_type") == "Manual Pricing":
-                return item.get("custom_promotion_price_manual")
+                return EcommerceEngine._to_float(
+                    item.get("custom_promotion_price_manual")
+                )
 
-            return item.get("custom_promotional_price")
+            return EcommerceEngine._to_float(
+                item.get("custom_promotional_price")
+            )
 
-        # 2️⃣ FIXED MODE
-        if _is_enabled(item.get("custom_fixed_price")):
-            return item.get("custom_ecommerce_price")
+        # Default fallback
+        return EcommerceEngine._to_float(
+            item.get("custom_ecommerce_price")
+        )
 
-        # 3️⃣ MRP MODE
-        if _is_enabled(item.get("custom_mrp_rate")):
-            return item.get("custom_mrp_price")
+    # -----------------------------------------------------
+    # Final API Transformation
+    # -----------------------------------------------------
 
-        # 4️⃣ DEFAULT FALLBACK
-        return item.get("custom_ecommerce_price")
-
-    # -------------------------------------------------
-    # TRANSFORM ITEM FOR FRONTEND
-    # -------------------------------------------------
     @staticmethod
     def transform_item(item: Dict[str, Any]) -> Dict[str, Any]:
 
+        # Resolve final price
         price = EcommerceEngine.resolve_price(item)
 
-        is_price_visible = _is_enabled(item.get("custom_show_price"))
-        is_image_visible = _is_enabled(item.get("custom_show_image"))
-        show_strike = _is_enabled(item.get("custom_show_strike_price"))
+        # Visibility controls
+        is_price_visible = (
+            EcommerceEngine._to_int(item.get("custom_show_price")) == 1
+        )
+
+        is_image_visible = (
+            EcommerceEngine._to_int(item.get("custom_show_image")) == 1
+        )
 
         stock_status = (
             "In Stock"
-            if _is_enabled(item.get("custom_show_stock"))
+            if EcommerceEngine._to_int(item.get("custom_show_stock")) == 1
             else "Out of Stock"
         )
 
+        # Promotion & Strike logic
+        is_on_sale = False
         original_price = None
         discount_percentage = 0
-        is_on_sale = False
 
-        # Strike price logic (only when promotion active)
         if EcommerceEngine.is_promotion_active(item) and price is not None:
             is_on_sale = True
 
-            base_type = item.get("custom_promotion_base_price")
+            if EcommerceEngine._to_int(item.get("custom_show_strike_price")) == 1:
+                original_price = EcommerceEngine._to_float(
+                    item.get("custom_ecommerce_price")
+                )
 
-            if base_type == "Standard":
-                original_price = item.get("custom_standard_selling_price")
-            else:
-                original_price = item.get("custom_ecommerce_price")
-
-            discount_percentage = item.get("custom_promotion_discount_") or 0
+                discount_percentage = (
+                    EcommerceEngine._to_float(
+                        item.get("custom_promotion_discount_")
+                    ) or 0
+                )
 
         return {
             "price": price if is_price_visible else None,
-            "original_price": original_price if show_strike else None,
-            "discount_percentage": discount_percentage if show_strike else 0,
+            "original_price": original_price,
+            "discount_percentage": discount_percentage,
             "is_on_sale": is_on_sale,
             "is_price_visible": is_price_visible,
             "is_image_visible": is_image_visible,
