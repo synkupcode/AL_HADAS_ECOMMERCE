@@ -6,9 +6,15 @@ from app.integrations.erp_client import erp_request
 from app.services.ecommerce.visibility_engine import apply_visibility_rules
 from app.services.ecommerce.pricing_engine import apply_pricing_rules
 
+
 DEFAULT_PAGE_SIZE = 100
 
-ERP_BASE_URL = ""  # Keep blank, use normalize_image from utils if needed
+# -------------------------------------------------
+# ERP BASE URL (set this in Render environment)
+# Example:
+# ERP_BASE_URL = https://aerictec.frappe.cloud
+# -------------------------------------------------
+ERP_BASE_URL = os.getenv("ERP_BASE_URL", "").rstrip("/")
 
 
 def normalize_image(image_path: Optional[str]) -> str:
@@ -18,11 +24,16 @@ def normalize_image(image_path: Optional[str]) -> str:
     """
     if not image_path:
         return ""
+
+    # If already a full URL, return as-is
     if image_path.startswith("http"):
         return image_path
-    from app.core.config import settings
-    if settings.ERP_BASE_URL:
-        return f"{settings.ERP_BASE_URL}{image_path}"
+
+    # If ERP base URL is configured, prepend it
+    if ERP_BASE_URL:
+        return f"{ERP_BASE_URL}{image_path}"
+
+    # Fallback (in case env not set)
     return image_path
 
 
@@ -37,6 +48,7 @@ def get_products(
 
     if page < 1:
         page = 1
+
     if page_size < 1:
         page_size = DEFAULT_PAGE_SIZE
 
@@ -45,15 +57,17 @@ def get_products(
     # -------------------------
     filters: List[Any] = [
         ["disabled", "=", 0],
-        ["custom_enable_item", "=", 1],  # Only items enabled for ecommerce
+        ["custom_enable_item", "=", 1],
     ]
+
     if category:
         filters.append(["item_group", "=", category])
+
     if subcategory:
         filters.append(["custom_subcategory", "=", subcategory])
 
     # -------------------------
-    # FIELDS
+    # FIELDS (include ecommerce fields)
     # -------------------------
     fields = [
         "item_code",
@@ -80,40 +94,31 @@ def get_products(
         "show_strike_price",
     ]
 
-    # -----------------------------
-    # COUNT FOR PAGINATION
-    # -----------------------------
-    count_params = {
-        "filters": json.dumps(filters),
-        "fields": '["name"]',
-        "limit_page_length": 0,
-    }
-    count_res = erp_request("GET", "/api/resource/Item", params=count_params)
-    total_items = len(count_res.get("data", []))
-    total_pages = (total_items + page_size - 1) // page_size if page_size else 1
+    # -------------------------
+    # SORTING
+    # -------------------------
+    erp_order = "modified desc"
 
-    # -----------------------------
-    # DATA REQUEST
-    # -----------------------------
+    if order_by == "newest":
+        erp_order = "modified desc"
+
     start = (page - 1) * page_size
+
     params = {
         "filters": json.dumps(filters),
         "fields": json.dumps(fields),
         "limit_start": start,
         "limit_page_length": page_size,
-        "order_by": (
-            "standard_rate asc" if order_by == "price_asc" else
-            "standard_rate desc" if order_by == "price_desc" else
-            "modified desc"
-        ),
+        "order_by": erp_order,
     }
 
     response = erp_request("GET", "/api/resource/Item", params=params)
+
     items = response.get("data", []) or []
 
-    # -----------------------------
-    # SEARCH FILTER (POST PROCESS)
-    # -----------------------------
+    # -------------------------
+    # SEARCH
+    # -------------------------
     if search:
         search_lower = search.lower()
         items = [
@@ -122,18 +127,15 @@ def get_products(
             or search_lower in (item.get("item_code") or "").lower()
         ]
 
-    # -----------------------------
-    # APPLY PRICING & VISIBILITY
-    # -----------------------------
+    # -------------------------
+    # APPLY ENGINES
+    # -------------------------
     formatted_items = []
 
     for item in items:
-        # Apply ecommerce pricing rules
+
         item = apply_pricing_rules(item)
-        # Apply visibility rules
         item = apply_visibility_rules(item)
-        # Normalize image URL
-        item["image"] = normalize_image(item.get("image"))
 
         formatted_items.append({
             "item_code": item.get("item_code"),
@@ -157,8 +159,8 @@ def get_products(
         "pagination": {
             "page": page,
             "page_size": page_size,
-            "total_items": total_items,
-            "total_pages": total_pages,
+            "total_items": len(formatted_items),
+            "total_pages": 1,
         },
         "last_sync": datetime.now(timezone.utc).isoformat(),
     }
