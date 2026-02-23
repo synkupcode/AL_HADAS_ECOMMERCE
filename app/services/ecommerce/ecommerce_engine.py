@@ -1,60 +1,75 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Dict, Any
 
 
 def _is_enabled(value) -> bool:
+    """
+    ERP checkbox safety:
+    Handles 1, "1", True safely.
+    """
     return str(value) == "1"
 
 
 class EcommerceEngine:
 
+    # -------------------------------------------------
+    # PROMOTION CHECK
+    # -------------------------------------------------
     @staticmethod
     def is_promotion_active(item: Dict[str, Any]) -> bool:
         if not _is_enabled(item.get("custom_enable_promotion")):
             return False
 
         today = date.today()
-        start = item.get("custom_promotion_start")
-        end = item.get("custom_promotion_end")
 
-        if not start or not end:
+        start_raw = item.get("custom_promotion_start")
+        end_raw = item.get("custom_promotion_end")
+
+        if not start_raw or not end_raw:
             return False
+
+        try:
+            # ERP returns date fields as string "YYYY-MM-DD"
+            start = datetime.strptime(start_raw, "%Y-%m-%d").date()
+            end = datetime.strptime(end_raw, "%Y-%m-%d").date()
+        except Exception:
+            return False  # Fail safe if format unexpected
 
         return start <= today <= end
 
+    # -------------------------------------------------
+    # PRICE RESOLUTION
+    # -------------------------------------------------
     @staticmethod
     def resolve_price(item: Dict[str, Any]):
 
-        # -------------------------
-        # PROMOTION MODE (Priority 1)
-        # -------------------------
+        # 1️⃣ PROMOTION MODE (Highest Priority)
         if EcommerceEngine.is_promotion_active(item):
 
+            # Promotion must allow showing price
             if not _is_enabled(item.get("custom_promotional_rate")):
                 return None
 
+            # Manual or ERP calculated
             if item.get("custom_promotion_type") == "Manual Pricing":
                 return item.get("custom_promotion_price_manual")
 
             return item.get("custom_promotional_price")
 
-        # -------------------------
-        # FIXED MODE (Priority 2)
-        # -------------------------
+        # 2️⃣ FIXED MODE
         if _is_enabled(item.get("custom_fixed_price")):
             return item.get("custom_ecommerce_price")
 
-        # -------------------------
-        # MRP MODE (Priority 3)
-        # -------------------------
+        # 3️⃣ MRP MODE
         if _is_enabled(item.get("custom_mrp_rate")):
             return item.get("custom_mrp_price")
 
-        # -------------------------
-        # DEFAULT
-        # -------------------------
+        # 4️⃣ DEFAULT FALLBACK
         return item.get("custom_ecommerce_price")
 
+    # -------------------------------------------------
+    # TRANSFORM ITEM FOR FRONTEND
+    # -------------------------------------------------
     @staticmethod
     def transform_item(item: Dict[str, Any]) -> Dict[str, Any]:
 
@@ -74,7 +89,7 @@ class EcommerceEngine:
         discount_percentage = 0
         is_on_sale = False
 
-        # Strike price logic
+        # Strike price logic (only when promotion active)
         if EcommerceEngine.is_promotion_active(item) and price is not None:
             is_on_sale = True
 
