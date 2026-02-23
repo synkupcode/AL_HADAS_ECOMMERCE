@@ -55,7 +55,7 @@ def _create_customer(payload: Dict[str, Any]) -> str:
         "map_to_first_name": contact.get("first_name"),
         "map_to_last_name": contact.get("last_name"),
         "email_address": contact.get("email"),
-        "number": payload.get("phone"),
+        "phone": payload.get("phone"),
         "address_line1": address.get("address_line1"),
         "address_line2": address.get("address_line2"),
         "pincode": address.get("postal_code"),
