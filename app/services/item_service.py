@@ -2,7 +2,7 @@ import json
 import os
 from typing import Any, Dict, Optional, List
 from datetime import datetime, timezone
-
+from app.services.ecommerce.ecommerce_engine import EcommerceEngine
 from app.integrations.erp_client import erp_request
 
 
@@ -59,6 +59,7 @@ def get_products(
     # --------------------
     filters: List[Any] = [
         ["disabled", "=", 0],
+        ["custom_enable_item", "=", 1],
     ]
 
     if category:
@@ -155,18 +156,21 @@ def get_products(
     # --------------------
     # FORMAT RESPONSE
     # --------------------
-    formatted_items = [
-        {
+    formatted_items = []
+
+    for item in items:
+    
+        transformed = EcommerceEngine.transform_item(item)
+    
+        formatted_items.append({
             "item_code": item.get("item_code") or "",
             "item_name": item.get("item_name") or "",
             "description": item.get("description") or "",
-            "price": item.get("standard_rate") or 0,
-            "image": normalize_image(item.get("image")),
+            **transformed,
+            "image": normalize_image(transformed["image"]),
             "category": item.get("item_group") or "Uncategorized",
             "subcategory": item.get("custom_subcategory") or "Other",
-        }
-        for item in items
-    ]
+        })
 
     return {
         "status": "success",
