@@ -132,7 +132,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     res = erp_request(
         "POST",
-        f"/api/resource/{settings.ECOM_RFQ_DOCTYPE_URL}",
+        f"/api/resource/{settings.ECOM_RFQ_DOCTYPE}",
         json=rfq_payload,
     )
 
