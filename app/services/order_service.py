@@ -52,7 +52,30 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
     return item
 
+def _get_customer_email(customer_id: str) -> str | None:
+    res = erp_request(
+        "GET",
+        "/api/resource/Contact",
+        params={
+            "filters": f'[["links.link_doctype","=","Customer"],["links.link_name","=","{customer_id}"]]',
+            "fields": '["email_ids"]',
+            "limit_page_length": 1,
+        },
+    )
 
+    data = res.get("data") or []
+
+    if not data:
+        return None
+
+    contact = data[0]
+    email_ids = contact.get("email_ids") or []
+
+    if email_ids:
+        return email_ids[0].get("email_id")
+
+    return None
+    
 def _resolve_checkout_price(item_code: str) -> float:
     """
     Uses EcommerceEngine to determine final checkout price.
@@ -114,7 +137,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     rfq_payload = {
         "doctype": settings.ECOM_RFQ_DOCTYPE,
         "customer_name": customer_id,
-        "email_id": payload.get("contact", {}).get("email"),
+        "email_id": _get_customer_email(customer_id),
         "mobile_no": payload.get("phone"),
 
         "building_no": payload.get("address", {}).get("building_no"),
