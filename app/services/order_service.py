@@ -138,7 +138,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     rfq_payload = {
         "doctype": settings.ECOM_RFQ_DOCTYPE,
         "customer_name": customer_id,
-        "email_id": _get_customer_email(customer_id),
+        "email_id": payload.get("contact", {}).get("email"),
         "mobile_no": payload.get("phone"),
 
         "building_no": payload.get("address", {}).get("building_no"),
