@@ -1,5 +1,6 @@
+
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List
 
 from app.core.config import settings
 from app.integrations.erp_client import erp_request
@@ -15,10 +16,10 @@ def _now_date():
     return datetime.now(timezone.utc).date().isoformat()
 
 
-# -------------------------------------------------
-# Fetch Item From ERP
-# -------------------------------------------------
 def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
+    """
+    Fetch full item with all ecommerce pricing fields.
+    """
 
     fields = [
         "item_code",
@@ -52,18 +53,13 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
     return item
 
-
-# -------------------------------------------------
-# Fetch Customer Contact From ERP
-# -------------------------------------------------
-def _get_customer_contact_details(customer_id: str) -> Tuple[Optional[str], Optional[str]]:
-
+def _get_customer_email(customer_id: str) -> str | None:
     res = erp_request(
         "GET",
         "/api/resource/Contact",
         params={
             "filters": f'[["links.link_doctype","=","Customer"],["links.link_name","=","{customer_id}"]]',
-            "fields": '["email_ids","phone_nos"]',
+            "fields": '["email_ids"]',
             "limit_page_length": 1,
         },
     )
@@ -71,59 +67,47 @@ def _get_customer_contact_details(customer_id: str) -> Tuple[Optional[str], Opti
     data = res.get("data") or []
 
     if not data:
-        return None, None
+        return None
 
     contact = data[0]
-
-    email = None
-    mobile = None
-
     email_ids = contact.get("email_ids") or []
-    phone_nos = contact.get("phone_nos") or []
 
     if email_ids:
-        email = email_ids[0].get("email_id")
+        return email_ids[0].get("email_id")
 
-    if phone_nos:
-        mobile = phone_nos[0].get("phone")
-
-    return email, mobile
-
-
-# -------------------------------------------------
-# Resolve Checkout Price
-# -------------------------------------------------
+    return None
+    
 def _resolve_checkout_price(item_code: str) -> float:
+    """
+    Uses EcommerceEngine to determine final checkout price.
+    """
 
     item = _fetch_item_from_erp(item_code)
 
     transformed = EcommerceEngine.transform_item(item)
 
     if not transformed["is_price_visible"]:
-        raise OrderValidationError(f"Price is hidden for item {item_code}")
+        raise OrderValidationError(
+            f"Price is hidden for item {item_code}"
+        )
 
     price = transformed["price"]
 
     if price is None:
-        raise OrderValidationError(f"No valid price available for item {item_code}")
+        raise OrderValidationError(
+            f"No valid price available for item {item_code}"
+        )
 
     return float(price)
 
 
-# -------------------------------------------------
-# Create Ecommerce RFQ
-# -------------------------------------------------
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     cart: List[Dict[str, Any]] = payload.get("cart", [])
     if not cart:
         raise OrderValidationError("Cart cannot be empty")
 
-    # Customer (VAT-based, idempotent)
     customer_id = get_or_create_customer(payload)
-
-    # 🔥 Fetch email & mobile from ERP Contact
-    email, mobile = _get_customer_contact_details(customer_id)
 
     items_payload = []
 
@@ -137,6 +121,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
         if qty <= 0:
             raise OrderValidationError("Quantity must be greater than zero")
 
+        # 🔥 Use EcommerceEngine logic
         unit_price = _resolve_checkout_price(item_code)
 
         amount = qty * unit_price
@@ -150,14 +135,11 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             "amount": amount,
         })
 
-    # RFQ Payload
     rfq_payload = {
         "doctype": settings.ECOM_RFQ_DOCTYPE,
         "customer_name": customer_id,
-
-        # Backend-driven contact data
-        "email_id": email,
-        "mobile_no": mobile,
+        "email_id": _get_customer_email(customer_id),
+        "mobile_no": payload.get("phone"),
 
         "building_no": payload.get("address", {}).get("building_no"),
         "postal_code": payload.get("address", {}).get("postal_code"),
@@ -170,11 +152,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
         "item_table": items_payload,
     }
 
-    # Clean empty values (safe cleanup)
-    rfq_payload = {
-        k: v for k, v in rfq_payload.items()
-        if v not in (None, "", [])
-    }
+    rfq_payload = {k: v for k, v in rfq_payload.items() if v not in (None, "", [])}
 
     res = erp_request(
         "POST",
