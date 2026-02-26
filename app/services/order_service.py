@@ -1,5 +1,3 @@
-
-
 from datetime import datetime, timezone
 from typing import Dict, Any, List
 
@@ -12,10 +10,8 @@ from app.services.ecommerce.ecommerce_engine import EcommerceEngine
 class OrderValidationError(ValueError):
     pass
 
-
 def _now_date():
     return datetime.now(timezone.utc).date().isoformat()
-
 
 def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
     """
@@ -139,8 +135,6 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     rfq_payload = {
         "doctype": settings.ECOM_RFQ_DOCTYPE,
         "customer_name": customer_id,
-        "email_id": payload.get("contact", {}).get("email"),
-        "mobile_no": payload.get("phone"),
 
         "building_no": payload.get("address", {}).get("building_no"),
         "postal_code": payload.get("address", {}).get("postal_code"),
