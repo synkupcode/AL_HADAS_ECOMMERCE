@@ -92,7 +92,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             "item_code": item_code,
             "item_name": item.get("item_name"),
             "quantity": qty,
-            "rate": unit_price,   # ✅ fixed field name
+            "unit_pricex": unit_price,   
             "uom": item.get("uom"),
         })
 
