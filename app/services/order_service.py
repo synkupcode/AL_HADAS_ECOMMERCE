@@ -1,3 +1,6 @@
+
+
+
 from datetime import datetime, timezone
 from typing import Dict, Any, List
 
@@ -10,10 +13,16 @@ from app.services.ecommerce.ecommerce_engine import EcommerceEngine
 class OrderValidationError(ValueError):
     pass
 
+
 def _now_date():
     return datetime.now(timezone.utc).date().isoformat()
 
+
 def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
+    """
+    Fetch full item with all ecommerce pricing fields.
+    """
+
     fields = [
         "item_code",
         "item_name",
@@ -46,8 +55,35 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
     return item
 
+def _get_customer_email(customer_id: str) -> str | None:
+    res = erp_request(
+        "GET",
+        "/api/resource/Contact",
+        params={
+            "filters": f'[["links.link_doctype","=","Customer"],["links.link_name","=","{customer_id}"]]',
+            "fields": '["email_ids"]',
+            "limit_page_length": 1,
+        },
+    )
 
+    data = res.get("data") or []
+
+    if not data:
+        return None
+
+    contact = data[0]
+    email_ids = contact.get("email_ids") or []
+
+    if email_ids:
+        return email_ids[0].get("email_id")
+
+    return None
+    
 def _resolve_checkout_price(item_code: str) -> float:
+    """
+    Uses EcommerceEngine to determine final checkout price.
+    """
+
     item = _fetch_item_from_erp(item_code)
 
     transformed = EcommerceEngine.transform_item(item)
@@ -68,8 +104,8 @@ def _resolve_checkout_price(item_code: str) -> float:
 
 
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
-    cart: List[Dict[str, Any]] = payload.get("cart", [])
 
+    cart: List[Dict[str, Any]] = payload.get("cart", [])
     if not cart:
         raise OrderValidationError("Cart cannot be empty")
 
@@ -78,6 +114,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     items_payload = []
 
     for item in cart:
+
         item_code = item.get("item_code")
         if not item_code:
             raise OrderValidationError("Item code required")
@@ -86,21 +123,38 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
         if qty <= 0:
             raise OrderValidationError("Quantity must be greater than zero")
 
+        # 🔥 Use EcommerceEngine logic
         unit_price = _resolve_checkout_price(item_code)
+
+        amount = qty * unit_price
 
         items_payload.append({
             "item_code": item_code,
             "item_name": item.get("item_name"),
             "quantity": qty,
-            "unit_pricex": unit_price,   
+            "unit_pricex": unit_price,
             "uom": item.get("uom"),
+            "amount": amount,
         })
 
     rfq_payload = {
         "doctype": settings.ECOM_RFQ_DOCTYPE,
         "customer_name": customer_id,
+        "email_id": payload.get("contact", {}).get("email"),
+        "mobile_no": payload.get("phone"),
+
+        "building_no": payload.get("address", {}).get("building_no"),
+        "postal_code": payload.get("address", {}).get("postal_code"),
+        "street_name": payload.get("address", {}).get("street_name"),
+        "district": payload.get("address", {}).get("district"),
+        "city": payload.get("address", {}).get("city"),
+        "country": payload.get("address", {}).get("country"),
+        "full_address": payload.get("address", {}).get("full_address"),
+
         "item_table": items_payload,
     }
+
+    rfq_payload = {k: v for k, v in rfq_payload.items() if v not in (None, "", [])}
 
     res = erp_request(
         "POST",
