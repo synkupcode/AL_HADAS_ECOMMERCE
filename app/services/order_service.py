@@ -1,3 +1,5 @@
+
+
 from datetime import datetime, timezone
 from typing import Dict, Any, List
 
@@ -15,39 +17,10 @@ def _now_date():
     return datetime.now(timezone.utc).date().isoformat()
 
 
-# -------------------------------------------------
-# FETCH ORDER TYPE FROM ERP (SAFE WITH FALLBACK)
-# -------------------------------------------------
-def _get_default_order_type() -> str:
-    """
-    Fetch default order type from ERP E-Commerce Settings.
-    Falls back to RFQ if anything fails.
-    """
-
-    try:
-        res = erp_request(
-            "GET",
-            "/api/resource/E-Commerce Settings/1tk6cucvc9",
-            params={"fields": '["default_order_type"]'},
-        )
-
-        doc = res.get("data") or {}
-        order_type = doc.get("default_order_type")
-
-        if order_type in ("Sales Order", settings.ECOM_RFQ_DOCTYPE):
-            return order_type
-
-    except Exception:
-        # Do not break checkout if settings fetch fails
-        pass
-
-    return settings.ECOM_RFQ_DOCTYPE
-
-
-# -------------------------------------------------
-# ITEM FETCHING & PRICE RESOLUTION
-# -------------------------------------------------
 def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
+    """
+    Fetch full item with all ecommerce pricing fields.
+    """
 
     fields = [
         "item_code",
@@ -81,8 +54,34 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
     return item
 
+def _get_customer_email(customer_id: str) -> str | None:
+    res = erp_request(
+        "GET",
+        "/api/resource/Contact",
+        params={
+            "filters": f'[["links.link_doctype","=","Customer"],["links.link_name","=","{customer_id}"]]',
+            "fields": '["email_ids"]',
+            "limit_page_length": 1,
+        },
+    )
 
+    data = res.get("data") or []
+
+    if not data:
+        return None
+
+    contact = data[0]
+    email_ids = contact.get("email_ids") or []
+
+    if email_ids:
+        return email_ids[0].get("email_id")
+
+    return None
+    
 def _resolve_checkout_price(item_code: str) -> float:
+    """
+    Uses EcommerceEngine to determine final checkout price.
+    """
 
     item = _fetch_item_from_erp(item_code)
 
@@ -103,9 +102,6 @@ def _resolve_checkout_price(item_code: str) -> float:
     return float(price)
 
 
-# -------------------------------------------------
-# MAIN ORDER CREATION FUNCTION
-# -------------------------------------------------
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     cart: List[Dict[str, Any]] = payload.get("cart", [])
@@ -126,7 +122,9 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
         if qty <= 0:
             raise OrderValidationError("Quantity must be greater than zero")
 
+        # 🔥 Use EcommerceEngine logic
         unit_price = _resolve_checkout_price(item_code)
+
         amount = qty * unit_price
 
         items_payload.append({
@@ -138,78 +136,40 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             "amount": amount,
         })
 
-    # ------------------------------------------
-    # DETERMINE ORDER TYPE FROM ERP
-    # ------------------------------------------
-    order_type = _get_default_order_type()
+    rfq_payload = {
+        "doctype": settings.ECOM_RFQ_DOCTYPE,
+        "customer_name": customer_id,
+        "email_id": payload.get("contact", {}).get("email"),
+        "mobile_no": payload.get("phone"),
 
-    # ------------------------------------------
-    # SALES ORDER FLOW
-    # ------------------------------------------
-    if order_type == "Sales Order":
+        "building_no": payload.get("address", {}).get("building_no"),
+        "postal_code": payload.get("address", {}).get("postal_code"),
+        "street_name": payload.get("address", {}).get("street_name"),
+        "district": payload.get("address", {}).get("district"),
+        "city": payload.get("address", {}).get("city"),
+        "country": payload.get("address", {}).get("country"),
+        "full_address": payload.get("address", {}).get("full_address"),
 
-        sales_payload = {
-            "doctype": "Sales Order",
-            "customer": customer_id,
-            "items": [
-                {
-                    "item_code": i["item_code"],
-                    "qty": i["quantity"],
-                    "rate": i["unit_pricex"],
-                }
-                for i in items_payload
-            ],
-        }
+        "item_table": items_payload,
+    }
 
-        res = erp_request(
-            "POST",
-            "/api/resource/Sales Order",
-            json=sales_payload,
-        )
+    rfq_payload = {k: v for k, v in rfq_payload.items() if v not in (None, "", [])}
 
-    # ------------------------------------------
-    # E-COMMERCE RFQ FLOW (EXISTING LOGIC)
-    # ------------------------------------------
-    else:
+    res = erp_request(
+        "POST",
+        f"/api/resource/{settings.ECOM_RFQ_DOCTYPE}",
+        json=rfq_payload,
+    )
 
-        rfq_payload = {
-            "doctype": settings.ECOM_RFQ_DOCTYPE,
-            "customer_name": customer_id,
-            "email_id": payload.get("contact", {}).get("email"),
-            "mobile_no": payload.get("phone"),
-            "building_no": payload.get("address", {}).get("building_no"),
-            "postal_code": payload.get("address", {}).get("postal_code"),
-            "street_name": payload.get("address", {}).get("street_name"),
-            "district": payload.get("address", {}).get("district"),
-            "city": payload.get("address", {}).get("city"),
-            "country": payload.get("address", {}).get("country"),
-            "full_address": payload.get("address", {}).get("full_address"),
-            settings.ECOM_RFQ_ITEM_TABLE_FIELD: items_payload,
-        }
-
-        rfq_payload = {
-            k: v for k, v in rfq_payload.items()
-            if v not in (None, "", [])
-        }
-
-        res = erp_request(
-            "POST",
-            f"/api/resource/{settings.ECOM_RFQ_DOCTYPE}",
-            json=rfq_payload,
-        )
-
-    # ------------------------------------------
-    # COMMON RESPONSE
-    # ------------------------------------------
     doc = res.get("data") or {}
-    doc_name = doc.get("name")
+    rfq_id = doc.get("name")
 
-    if not doc_name:
-        raise OrderValidationError("Order creation failed")
+    if not rfq_id:
+        raise OrderValidationError("RFQ creation failed")
 
     return {
         "status": "submitted",
-        "ecommerce_rfq_id": doc_name,  # kept same to avoid frontend break
+        "ecommerce_rfq_id": rfq_id,
         "customer_id": customer_id,
         "created_at": _now_date(),
     }
