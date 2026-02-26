@@ -102,6 +102,5 @@ def get_or_create_customer(payload: Dict[str, Any]) -> str:
 
     # Create new if not found
     customer_id = create_customer(payload)
-    create_contact(customer_id, payload)
 
     return customer_id
