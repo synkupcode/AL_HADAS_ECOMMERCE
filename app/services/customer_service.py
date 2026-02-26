@@ -63,6 +63,8 @@ def create_customer(payload: Dict[str, Any]) -> str:
         "customer_group": payload.get("customer_group") or "Individual",
         "territory": payload.get("territory") or "All Territories",
         "custom_vat_registration_number": vat_number,
+        "custom_email": payload.get("email"),
+        "custom_phone_number": payload.get("phone"),
     }
 
     res = erp_request(
@@ -78,44 +80,6 @@ def create_customer(payload: Dict[str, Any]) -> str:
         raise CustomerError("Customer creation failed")
 
     return customer_id
-
-
-def create_contact(customer_id: str, payload: Dict[str, Any]) -> None:
-
-    phone = payload.get("phone")
-    contact = payload.get("contact") or {}
-
-    if not phone and not contact.get("email"):
-        return
-
-    contact_payload = {
-        "doctype": "Contact",
-        "first_name": contact.get("first_name") or payload.get("customer_name"),
-        "email_ids": [
-            {
-                "email_id": contact.get("email"),
-                "is_primary": 1,
-            }
-        ] if contact.get("email") else [],
-        "phone_nos": [
-            {
-                "phone": phone,
-                "is_primary_mobile": 1,
-            }
-        ] if phone else [],
-        "links": [
-            {
-                "link_doctype": "Customer",
-                "link_name": customer_id,
-            }
-        ],
-    }
-
-    erp_request(
-        "POST",
-        "/api/resource/Contact",
-        json=contact_payload,
-    )
 
 
 def get_or_create_customer(payload: Dict[str, Any]) -> str:
