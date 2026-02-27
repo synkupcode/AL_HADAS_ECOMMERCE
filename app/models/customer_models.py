@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import Optional
 
 
@@ -9,29 +9,28 @@ class AddressIn(BaseModel):
     postal_code: Optional[str] = None
     address_type: Optional[str] = "Billing"
 
-    # Extra fields for your E-Commerce RFQ snapshot (optional)
+    # E-Commerce RFQ snapshot fields
     building_no: Optional[str] = None
     street_name: Optional[str] = None
     district: Optional[str] = None
     full_address: Optional[str] = None
 
 
-class ContactIn(BaseModel):
-    first_name: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-
-
 class CustomerCreateOrUseIn(BaseModel):
+    # Required for lookup & RFQ tracking
     phone: str = Field(..., min_length=3)
 
     # Required if new customer
     customer_name: Optional[str] = None
     customer_type: Optional[str] = "Individual"
     vat_number: Optional[str] = None
-    address: Optional[AddressIn] = None
-    contact: Optional[ContactIn] = None
+
+    # Store directly on Customer (no Contact doctype)
+    email: Optional[EmailStr] = None
 
     # Optional business fields
     cr_no: Optional[str] = None
     company_name: Optional[str] = None
+
+    # Optional address snapshot
+    address: Optional[AddressIn] = None
