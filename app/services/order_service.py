@@ -11,7 +11,7 @@ class OrderValidationError(ValueError):
     pass
 
 
-def _now_date():
+def _now_date() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
@@ -54,10 +54,10 @@ def _resolve_checkout_price(item_code: str) -> float:
 
     transformed = EcommerceEngine.transform_item(item)
 
-    if not transformed["is_price_visible"]:
+    if not transformed.get("is_price_visible"):
         raise OrderValidationError(f"Price is hidden for item {item_code}")
 
-    price = transformed["price"]
+    price = transformed.get("price")
 
     if price is None:
         raise OrderValidationError(
@@ -72,6 +72,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not cart:
         raise OrderValidationError("Cart cannot be empty")
 
+    # Create or fetch customer (by VAT / phone logic in service)
     customer_id = get_or_create_customer(payload)
 
     items_payload = []
@@ -90,26 +91,30 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
         items_payload.append({
             "item_code": item_code,
-            "item_name": item.get("item_name"),
             "quantity": qty,
             "unit_pricex": unit_price,
-            "uom": item.get("uom"),
             "amount": amount,
         })
 
+    # ✅ SAFE address handling (prevents None.get crash)
+    address = payload.get("address") or {}
+
     rfq_payload = {
         "doctype": settings.ECOM_RFQ_DOCTYPE,
-        "customer_name": customer_id,  # ✅ ERP fetch fills email & phone
-        "building_no": payload.get("address", {}).get("building_no"),
-        "postal_code": payload.get("address", {}).get("postal_code"),
-        "street_name": payload.get("address", {}).get("street_name"),
-        "district": payload.get("address", {}).get("district"),
-        "city": payload.get("address", {}).get("city"),
-        "country": payload.get("address", {}).get("country"),
-        "full_address": payload.get("address", {}).get("full_address"),
+        "customer_name": customer_id,  # ERP fetch auto-fills email & phone
+
+        "building_no": address.get("building_no"),
+        "postal_code": address.get("postal_code"),
+        "street_name": address.get("street_name"),
+        "district": address.get("district"),
+        "city": address.get("city"),
+        "country": address.get("country"),
+        "full_address": address.get("full_address"),
+
         "item_table": items_payload,
     }
 
+    # Remove empty fields
     rfq_payload = {
         k: v for k, v in rfq_payload.items()
         if v not in (None, "", [])
