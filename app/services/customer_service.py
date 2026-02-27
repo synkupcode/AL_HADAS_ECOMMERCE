@@ -21,10 +21,7 @@ def _normalize_customer_type(value: str | None) -> str:
     return value
 
 
-def _normalize_vat(vat: str | None) -> str:
-    if not vat:
-        raise CustomerError("VAT number is required")
-
+def _normalize_vat(vat: str) -> str:
     return vat.strip().replace(" ", "").upper()
 
 
@@ -46,31 +43,17 @@ def _find_customer_by_vat(vat_number: str) -> str | None:
     return None
 
 
-def _update_customer_contact(customer_id: str, payload: Dict[str, Any]) -> None:
-    update_fields = {}
-
-    if payload.get("email"):
-        update_fields["custom_email"] = payload["email"]
-
-    if payload.get("phone"):
-        update_fields["custom_phone_number"] = payload["phone"]
-
-    if not update_fields:
-        return
-
-    erp_request(
-        "PUT",
-        f"/api/resource/Customer/{customer_id}",
-        json=update_fields,
-    )
-
-
 def create_customer(payload: Dict[str, Any]) -> str:
     customer_name = payload.get("customer_name")
-    vat_number = _normalize_vat(payload.get("vat_number"))
+    vat_number = payload.get("vat_number")
 
     if not customer_name:
         raise CustomerError("Customer name is required")
+
+    if not vat_number:
+        raise CustomerError("VAT number is required")
+
+    vat_number = _normalize_vat(vat_number)
 
     customer_payload = {
         "doctype": "Customer",
@@ -79,6 +62,8 @@ def create_customer(payload: Dict[str, Any]) -> str:
         "customer_group": payload.get("customer_group") or "Individual",
         "territory": payload.get("territory") or "All Territories",
         "custom_vat_registration_number": vat_number,
+
+        # ✅ Your actual ERP fields
         "custom_email": payload.get("email"),
         "custom_phone_number": payload.get("phone"),
     }
@@ -100,18 +85,18 @@ def create_customer(payload: Dict[str, Any]) -> str:
 
 def get_or_create_customer(payload: Dict[str, Any]) -> str:
     customer_name = payload.get("customer_name")
-    vat_number = _normalize_vat(payload.get("vat_number"))
+    vat_number = payload.get("vat_number")
 
     if not customer_name:
         raise CustomerError("Customer name is required")
 
-    existing = _find_customer_by_vat(vat_number)
+    if not vat_number:
+        raise CustomerError("VAT number is required")
 
+    vat_number = _normalize_vat(vat_number)
+
+    existing = _find_customer_by_vat(vat_number)
     if existing:
-        _update_customer_contact(existing, payload)
         return existing
 
-    return create_customer({
-        **payload,
-        "vat_number": vat_number,
-    })
+    return create_customer(payload)
