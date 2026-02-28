@@ -30,6 +30,7 @@ class CustomerCreateOrUseIn(BaseModel):
     customer_name: Optional[str] = None
     customer_type: Optional[str] = "Individual"
     vat_number: Optional[str] = None
+    email: Optional[str] = None
     address: Optional[AddressIn] = None
     contact: Optional[ContactIn] = None
 
