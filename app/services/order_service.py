@@ -96,11 +96,14 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             "amount": amount,
         })
 
+    # 🔥 FINAL CLEAN RFQ PAYLOAD
     rfq_payload = {
         "doctype": settings.ECOM_RFQ_DOCTYPE,
+
+        # Only link to Customer
         "customer_name": customer_id,
 
-        # Address snapshot only
+        # Address snapshot from website
         "building_no": payload.get("address", {}).get("building_no"),
         "postal_code": payload.get("address", {}).get("postal_code"),
         "street_name": payload.get("address", {}).get("street_name"),
@@ -109,10 +112,14 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
         "country": payload.get("address", {}).get("country"),
         "full_address": payload.get("address", {}).get("full_address"),
 
+        # Items
         "item_table": items_payload,
     }
 
-    rfq_payload = {k: v for k, v in rfq_payload.items() if v not in (None, "", [])}
+    rfq_payload = {
+        k: v for k, v in rfq_payload.items()
+        if v not in (None, "", [])
+    }
 
     res = erp_request(
         "POST",
