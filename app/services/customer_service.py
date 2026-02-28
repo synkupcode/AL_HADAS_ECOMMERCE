@@ -52,7 +52,7 @@ def get_or_create_customer(payload: Dict[str, Any]) -> str:
             )
 
         return existing
-
+    print("PAYLOAD RECEIVED:", payload)
     # Create new customer
     customer_payload = {
         "doctype": "Customer",
