@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi import APIRouter
 
 from app.core.config import settings
 from app.core.site_control import SiteControl
@@ -19,31 +20,28 @@ app = FastAPI(title="AL HADAS Ecommerce Middleware")
 
 
 # -------------------------------------------------
-# Store Freeze Middleware (Production Grade)
+# Store Freeze Middleware (Backend Protection)
 # -------------------------------------------------
 
 class StoreFreezeMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request, call_next):
 
-        # Always allow health endpoint
+        # Always allow health check
         if request.url.path == "/health":
             return await call_next(request)
 
-        # Check ERP store visibility
+        # Check ERP Store Visibility
         visibility = SiteControl.get_store_visibility()
 
+        # If not enabled → block backend APIs
         if visibility in ["Maintenance", "Disable"]:
-
-            message = (
-                "Site is under maintenance."
-                if visibility == "Maintenance"
-                else "System is currently unavailable."
-            )
-
             return JSONResponse(
                 status_code=503,
-                content={"detail": message},
+                content={
+                    "visibility": visibility,
+                    "detail": "Store is currently unavailable."
+                },
             )
 
         return await call_next(request)
@@ -55,11 +53,9 @@ class StoreFreezeMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(StoreFreezeMiddleware)
 
-allow_origins = settings.ALLOWED_ORIGINS or ["*"]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allow_origins,
+    allow_origins=settings.ALLOWED_ORIGINS or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -67,7 +63,22 @@ app.add_middleware(
 
 
 # -------------------------------------------------
-# Include Routers
+# Store Status Endpoint (For Next.js UI Control)
+# -------------------------------------------------
+
+status_router = APIRouter()
+
+@status_router.get("/store-status")
+def store_status():
+    return {
+        "visibility": SiteControl.get_store_visibility()
+    }
+
+app.include_router(status_router)
+
+
+# -------------------------------------------------
+# Include Existing Routers
 # -------------------------------------------------
 
 app.include_router(items_router)
@@ -76,7 +87,7 @@ app.include_router(customers_router)
 
 
 # -------------------------------------------------
-# Health Check Endpoint
+# Health Check
 # -------------------------------------------------
 
 @app.get("/health")
