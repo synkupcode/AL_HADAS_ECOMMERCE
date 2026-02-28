@@ -1,8 +1,5 @@
 from typing import Dict, Any
 from app.integrations.erp_client import erp_request
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 class CustomerError(ValueError):
@@ -29,10 +26,14 @@ def _find_customer_by_phone(phone: str) -> str | None:
 
 def get_or_create_customer(payload: Dict[str, Any]) -> str:
 
-    logger.info("=== CUSTOMER PAYLOAD RECEIVED ===")
-    logger.info("Full Payload: %s", payload)
-    logger.info("Email Value: %s", repr(payload.get("email")))
-    logger.info("=================================")
+    # ==============================
+    # DEBUG PRINTS (VISIBLE IN RENDER)
+    # ==============================
+    print("========== CUSTOMER DEBUG ==========")
+    print("FULL PAYLOAD:", payload)
+    print("PAYLOAD KEYS:", list(payload.keys()))
+    print("EMAIL VALUE:", payload.get("email"))
+    print("====================================")
 
     phone = payload.get("phone")
     if not phone:
@@ -56,9 +57,9 @@ def get_or_create_customer(payload: Dict[str, Any]) -> str:
         if payload.get("vat_number"):
             update_fields["custom_vat_registration_number"] = payload["vat_number"]
 
-        if update_fields:
-            logger.info("Updating Customer %s with: %s", existing, update_fields)
+        print("UPDATE FIELDS:", update_fields)
 
+        if update_fields:
             erp_request(
                 "PUT",
                 f"/api/resource/Customer/{existing}",
@@ -70,7 +71,7 @@ def get_or_create_customer(payload: Dict[str, Any]) -> str:
     # ==================================================
     # CREATE NEW CUSTOMER
     # ==================================================
-    logger.info("Creating new customer...")
+    print("Creating NEW customer...")
 
     email_value = payload.get("email")
     if email_value:
@@ -83,17 +84,15 @@ def get_or_create_customer(payload: Dict[str, Any]) -> str:
         "customer_group": "Individual",
         "territory": "All Territories",
 
-        # Correct phone field
+        # Correct ERP fields
         "custom_phone_number": phone,
-
-        # Correct email field
         "custom_email": email_value if email_value else None,
     }
 
     if payload.get("vat_number"):
         customer_payload["custom_vat_registration_number"] = payload["vat_number"]
 
-    logger.info("Customer Create Payload: %s", customer_payload)
+    print("CUSTOMER CREATE PAYLOAD:", customer_payload)
 
     res = erp_request(
         "POST",
@@ -101,7 +100,7 @@ def get_or_create_customer(payload: Dict[str, Any]) -> str:
         json=customer_payload,
     )
 
-    logger.info("ERP CREATE RESPONSE: %s", res)
+    print("ERP CREATE RESPONSE:", res)
 
     doc = res.get("data") or {}
     customer_id = doc.get("name")
