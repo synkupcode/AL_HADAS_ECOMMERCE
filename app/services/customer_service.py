@@ -92,11 +92,12 @@ def get_or_create_customer(payload: Dict[str, Any]) -> str:
     logger.info("Customer Create Payload: %s", customer_payload)
 
     res = erp_request(
-        "POST",
-        "/api/resource/Customer",
-        json=customer_payload,
-    )
+    "POST",
+    "/api/resource/Customer",
+    json=customer_payload,
+)
 
+print("ERP CREATE RESPONSE:", res)
     doc = res.get("data") or {}
     customer_id = doc.get("name")
 
