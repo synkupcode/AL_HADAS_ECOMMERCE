@@ -17,7 +17,7 @@ def _today():
 
 
 # =================================================
-# FETCH ITEM
+# FETCH ITEM FROM ERP (USED FOR PRICING)
 # =================================================
 def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
@@ -55,7 +55,7 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
 
 # =================================================
-# RFQ (UNCHANGED)
+# RFQ (UNCHANGED — STILL WORKING)
 # =================================================
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
@@ -69,6 +69,9 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     for item in cart:
         item_code = item.get("item_code")
         qty = float(item.get("qty", 0))
+
+        if qty <= 0:
+            raise OrderValidationError("Quantity must be greater than zero")
 
         item_data = _fetch_item_from_erp(item_code)
         transformed = EcommerceEngine.transform_item(item_data)
@@ -99,10 +102,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
         "item_table": items_payload,
     }
 
-    rfq_payload = {
-        k: v for k, v in rfq_payload.items()
-        if v not in (None, "", [])
-    }
+    rfq_payload = {k: v for k, v in rfq_payload.items() if v not in (None, "", [])}
 
     res = erp_request(
         method="POST",
@@ -122,7 +122,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # =================================================
-# SALES ORDER (NOW USING SAME PRICE ENGINE)
+# SALES ORDER (WORKING + FRONTEND COMPATIBLE)
 # =================================================
 def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
@@ -147,7 +147,7 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         if qty <= 0:
             raise OrderValidationError("Quantity must be greater than zero")
 
-        # 🔥 FETCH PRICE FROM ERP (SAME AS RFQ)
+        # 🔥 Fetch price same as RFQ
         item_data = _fetch_item_from_erp(item_code)
         transformed = EcommerceEngine.transform_item(item_data)
 
@@ -185,10 +185,12 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
     doc = res.get("data") or {}
     so_id = doc.get("name")
 
+    # 🔥 IMPORTANT: return same key as RFQ so frontend works
     return {
-        "status": "draft",
-        "sales_order_id": so_id,
+        "status": "submitted",
+        "ecommerce_rfq_id": so_id,  # reuse key intentionally
         "customer_id": customer_id,
+        "created_at": _today(),
     }
 
 
