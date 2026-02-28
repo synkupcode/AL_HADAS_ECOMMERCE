@@ -1,9 +1,8 @@
 from fastapi import APIRouter, HTTPException, Header
 from typing import Optional
-
+from app.services.order_service import create_ecommerce_rfq
 from app.core.config import settings
 from app.models.order_models import PlaceOrderIn
-from app.services.order_service import create_ecommerce_order
 from app.services.order_tracking import list_orders_by_phone, get_order_detail
 
 
@@ -34,7 +33,7 @@ def place_order(
     _require_frontend_token(x_frontend_token)
 
     try:
-        return create_ecommerce_order(payload.model_dump())
+        return create_ecommerce_rfq(payload.model_dump())
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
