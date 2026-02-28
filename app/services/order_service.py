@@ -61,7 +61,7 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
 
 # =================================================
-# RFQ FLOW (UNCHANGED LOGIC)
+# RFQ FLOW (UNCHANGED)
 # =================================================
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
@@ -165,11 +165,16 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         if qty <= 0:
             raise OrderValidationError("Quantity must be greater than zero")
 
+        unit_price = float(item.get("unit_price", 0))
+
         items_payload.append({
             "item_code": item_code,
             "qty": qty,
-            "rate": float(item.get("unit_price", 0)),
-            "warehouse": DEFAULT_WAREHOUSE,  # REQUIRED FOR STOCK ITEM
+            "uom": item.get("uom"),
+            "price_list_rate": unit_price,
+            "rate": unit_price,
+            "amount": qty * unit_price,
+            "warehouse": DEFAULT_WAREHOUSE,
         })
 
     sales_order_payload = {
@@ -177,7 +182,8 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         "customer": customer_id,
         "transaction_date": _today(),
         "delivery_date": _today(),
-        "set_warehouse": DEFAULT_WAREHOUSE,  # BACKUP SAFETY
+        "set_warehouse": DEFAULT_WAREHOUSE,
+        "selling_price_list": "Standard Selling",
         "items": items_payload,
     }
 
