@@ -1,7 +1,3 @@
-
-
-
-
 from datetime import datetime, timezone
 from typing import Dict, Any, List
 
@@ -20,10 +16,6 @@ def _now_date():
 
 
 def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
-    """
-    Fetch full item with all ecommerce pricing fields.
-    """
-
     fields = [
         "item_code",
         "item_name",
@@ -56,50 +48,18 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
     return item
 
-def _get_customer_email(customer_id: str) -> str | None:
-    res = erp_request(
-        "GET",
-        "/api/resource/Contact",
-        params={
-            "filters": f'[["links.link_doctype","=","Customer"],["links.link_name","=","{customer_id}"]]',
-            "fields": '["email_ids"]',
-            "limit_page_length": 1,
-        },
-    )
 
-    data = res.get("data") or []
-
-    if not data:
-        return None
-
-    contact = data[0]
-    email_ids = contact.get("email_ids") or []
-
-    if email_ids:
-        return email_ids[0].get("email_id")
-
-    return None
-    
 def _resolve_checkout_price(item_code: str) -> float:
-    """
-    Uses EcommerceEngine to determine final checkout price.
-    """
-
     item = _fetch_item_from_erp(item_code)
-
     transformed = EcommerceEngine.transform_item(item)
 
     if not transformed["is_price_visible"]:
-        raise OrderValidationError(
-            f"Price is hidden for item {item_code}"
-        )
+        raise OrderValidationError(f"Price is hidden for item {item_code}")
 
     price = transformed["price"]
 
     if price is None:
-        raise OrderValidationError(
-            f"No valid price available for item {item_code}"
-        )
+        raise OrderValidationError(f"No valid price available for item {item_code}")
 
     return float(price)
 
@@ -110,12 +70,12 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not cart:
         raise OrderValidationError("Cart cannot be empty")
 
+    # Ensure customer exists first
     customer_id = get_or_create_customer(payload)
 
     items_payload = []
 
     for item in cart:
-
         item_code = item.get("item_code")
         if not item_code:
             raise OrderValidationError("Item code required")
@@ -124,9 +84,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
         if qty <= 0:
             raise OrderValidationError("Quantity must be greater than zero")
 
-        # 🔥 Use EcommerceEngine logic
         unit_price = _resolve_checkout_price(item_code)
-
         amount = qty * unit_price
 
         items_payload.append({
@@ -141,9 +99,8 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     rfq_payload = {
         "doctype": settings.ECOM_RFQ_DOCTYPE,
         "customer_name": customer_id,
-        "email_id": payload.get("contact", {}).get("email"),
-        "mobile_no": payload.get("phone"),
 
+        # Address snapshot only
         "building_no": payload.get("address", {}).get("building_no"),
         "postal_code": payload.get("address", {}).get("postal_code"),
         "street_name": payload.get("address", {}).get("street_name"),
