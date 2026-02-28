@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, HTTPException, Header
 from typing import Optional
 
@@ -7,7 +6,6 @@ from app.models.order_models import PlaceOrderIn
 from app.services.order_service import create_ecommerce_order
 from app.services.order_tracking import list_orders_by_phone, get_order_detail
 
-
 router = APIRouter(prefix="", tags=["orders"])
 
 
@@ -15,6 +13,7 @@ router = APIRouter(prefix="", tags=["orders"])
 # Frontend Token Protection (MVP Layer)
 # -------------------------------------------------
 def _require_frontend_token(x_frontend_token: Optional[str]) -> None:
+    # If token is not configured, skip check (MVP mode)
     if not settings.FRONTEND_SECRET_TOKEN:
         return
 
