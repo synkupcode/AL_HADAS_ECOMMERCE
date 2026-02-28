@@ -53,3 +53,8 @@ class SiteControl:
         """
         visibility = cls.get_store_visibility()
         return visibility in ["Maintenance", "Disable"]
+        
+    @classmethod
+    def get_default_order_type(cls) -> str:
+        settings = cls._get_settings()
+        return settings.get("default_order_type", "E-Commerce RFQ")
