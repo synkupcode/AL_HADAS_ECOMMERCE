@@ -22,9 +22,9 @@ def _today():
     return datetime.now(timezone.utc).date().isoformat()
 
 
-# -------------------------------------------------
-# Fetch Item From ERP (Required for RFQ Pricing)
-# -------------------------------------------------
+# =================================================
+# FETCH ITEM (Used for RFQ Pricing)
+# =================================================
 def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
     fields = [
@@ -60,9 +60,9 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
     return item
 
 
-# -------------------------------------------------
-# EXISTING RFQ FLOW (UNCHANGED)
-# -------------------------------------------------
+# =================================================
+# EXISTING RFQ FLOW (RESTORED + ADDRESS REQUIRED)
+# =================================================
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     cart: List[Dict[str, Any]] = payload.get("cart", [])
@@ -99,12 +99,23 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             "amount": qty * unit_price,
         })
 
+    # 🔥 ADDRESS (MANDATORY FOR YOUR ERP)
+    address = payload.get("address", {})
+
     rfq_payload = {
         "doctype": settings.ECOM_RFQ_DOCTYPE,
         "customer_name": customer_id,
+
+        # Required fields in ERP
+        "building_no": address.get("building_no"),
+        "postal_code": address.get("postal_code"),
+        "city": address.get("city"),
+        "full_address": address.get("full_address"),
+
         "item_table": items_payload,
     }
 
+    # Remove empty values safely
     rfq_payload = {
         k: v for k, v in rfq_payload.items()
         if v not in (None, "", [])
@@ -130,9 +141,9 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-# -------------------------------------------------
+# =================================================
 # NEW — SALES ORDER (DRAFT)
-# -------------------------------------------------
+# =================================================
 def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     cart: List[Dict[str, Any]] = payload.get("cart", [])
@@ -161,7 +172,7 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
     sales_order_payload = {
         "doctype": "Sales Order",
         "customer": customer_id,
-        "transaction_date": _today(),  # safe default
+        "transaction_date": _today(),  # auto-safe
         "items": items_payload,
     }
 
@@ -184,9 +195,9 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-# -------------------------------------------------
-# UNIFIED ENTRY POINT
-# -------------------------------------------------
+# =================================================
+# UNIFIED ENTRY POINT (USED BY ROUTER)
+# =================================================
 def create_ecommerce_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     order_type = SiteControl.get_default_order_type()
