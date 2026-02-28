@@ -1,4 +1,3 @@
-
 from typing import Dict, Any
 from app.integrations.erp_client import erp_request
 
@@ -7,34 +6,12 @@ class CustomerError(ValueError):
     pass
 
 
-ALLOWED_CUSTOMER_TYPES = {"Individual", "Company", "Partnership"}
-
-
-def _normalize_customer_type(value: str | None) -> str:
-    if not value:
-        return "Individual"
-
-    value = value.strip().title()
-
-    if value not in ALLOWED_CUSTOMER_TYPES:
-        return "Individual"
-
-    return value
-
-
-def _normalize_vat(vat: str | None) -> str:
-    if not vat:
-        raise CustomerError("VAT number is required")
-
-    return vat.strip().replace(" ", "").upper()
-
-
-def _find_customer_by_vat(vat_number: str) -> str | None:
+def _find_customer_by_phone(phone: str) -> str | None:
     res = erp_request(
         "GET",
         "/api/resource/Customer",
         params={
-            "filters": f'[["custom_vat_registration_number","=","{vat_number}"]]',
+            "filters": f'[["custom_phone_number","=","{phone}"]]',
             "fields": '["name"]',
             "limit_page_length": 1,
         },
@@ -42,47 +19,53 @@ def _find_customer_by_vat(vat_number: str) -> str | None:
 
     data = res.get("data") or []
     if data:
-        return data[0].get("name")
+        return data[0]["name"]
 
     return None
 
 
-def _update_customer_contact(customer_id: str, payload: Dict[str, Any]) -> None:
-    update_fields = {}
+def get_or_create_customer(payload: Dict[str, Any]) -> str:
+    phone = payload.get("phone")
+    if not phone:
+        raise CustomerError("Phone is required")
 
-    if payload.get("email"):
-        update_fields["custom_email"] = payload["email"]
+    existing = _find_customer_by_phone(phone)
 
-    if payload.get("phone"):
-        update_fields["custom_phone_number"] = payload["phone"]
+    # If exists → update fields
+    if existing:
+        update_fields = {}
 
-    if not update_fields:
-        return
+        if payload.get("customer_name"):
+            update_fields["customer_name"] = payload["customer_name"]
 
-    erp_request(
-        "PUT",
-        f"/api/resource/Customer/{customer_id}",
-        json=update_fields,
-    )
+        if payload.get("email"):
+            update_fields["custom_email"] = payload["email"]
 
+        if payload.get("vat_number"):
+            update_fields["custom_vat_registration_number"] = payload["vat_number"]
 
-def create_customer(payload: Dict[str, Any]) -> str:
-    customer_name = payload.get("customer_name")
-    vat_number = _normalize_vat(payload.get("vat_number"))
+        if update_fields:
+            erp_request(
+                "PUT",
+                f"/api/resource/Customer/{existing}",
+                json=update_fields,
+            )
 
-    if not customer_name:
-        raise CustomerError("Customer name is required")
+        return existing
 
+    # Create new customer
     customer_payload = {
         "doctype": "Customer",
-        "customer_name": customer_name,
-        "customer_type": _normalize_customer_type(payload.get("customer_type")),
-        "customer_group": payload.get("customer_group") or "Individual",
-        "territory": payload.get("territory") or "All Territories",
-        "custom_vat_registration_number": vat_number,
+        "customer_name": payload.get("customer_name") or phone,
+        "customer_type": payload.get("customer_type") or "Individual",
+        "customer_group": "Individual",
+        "territory": "All Territories",
+        "custom_phone_number": phone,
         "custom_email": payload.get("email"),
-        "custom_phone_number": payload.get("phone"),
     }
+
+    if payload.get("vat_number"):
+        customer_payload["custom_vat_registration_number"] = payload["vat_number"]
 
     res = erp_request(
         "POST",
@@ -97,22 +80,3 @@ def create_customer(payload: Dict[str, Any]) -> str:
         raise CustomerError("Customer creation failed")
 
     return customer_id
-
-
-def get_or_create_customer(payload: Dict[str, Any]) -> str:
-    customer_name = payload.get("customer_name")
-    vat_number = _normalize_vat(payload.get("vat_number"))
-
-    if not customer_name:
-        raise CustomerError("Customer name is required")
-
-    existing = _find_customer_by_vat(vat_number)
-
-    if existing:
-        _update_customer_contact(existing, payload)
-        return existing
-
-    return create_customer({
-        **payload,
-        "vat_number": vat_number,
-    })
