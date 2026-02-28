@@ -1,6 +1,6 @@
 from typing import Dict, Any
-import logging
 from app.integrations.erp_client import erp_request
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ def _find_customer_by_phone(phone: str) -> str | None:
         "GET",
         "/api/resource/Customer",
         params={
-            "filters": f'[["mobile_no","=","{phone}"]]',
+            "filters": f'[["custom_phone_number","=","{phone}"]]',
             "fields": '["name"]',
             "limit_page_length": 1,
         },
@@ -28,7 +28,8 @@ def _find_customer_by_phone(phone: str) -> str | None:
 
 
 def get_or_create_customer(payload: Dict[str, Any]) -> str:
-    # 🔍 DEBUG LOGS
+
+    # 🔍 ALWAYS LOG PAYLOAD
     logger.info("=== CUSTOMER PAYLOAD RECEIVED ===")
     logger.info("Full Payload: %s", payload)
     logger.info("Email Value: %s", repr(payload.get("email")))
@@ -40,21 +41,21 @@ def get_or_create_customer(payload: Dict[str, Any]) -> str:
 
     existing = _find_customer_by_phone(phone)
 
-    # Update existing customer
+    # -------------------------
+    # UPDATE EXISTING CUSTOMER
+    # -------------------------
     if existing:
         update_fields = {}
 
         if payload.get("customer_name"):
             update_fields["customer_name"] = payload["customer_name"]
 
+        # 🔥 EMAIL UPDATE (IMPORTANT)
         if payload.get("email"):
             update_fields["custom_email"] = payload["email"]
 
         if payload.get("vat_number"):
             update_fields["custom_vat_registration_number"] = payload["vat_number"]
-
-        if payload.get("company_name"):
-            update_fields["company_name"] = payload["company_name"]
 
         if update_fields:
             logger.info("Updating Customer %s with: %s", existing, update_fields)
@@ -67,7 +68,12 @@ def get_or_create_customer(payload: Dict[str, Any]) -> str:
 
         return existing
 
-    # Create new customer
+    # -------------------------
+    # CREATE NEW CUSTOMER
+    # -------------------------
+
+    logger.info("Creating new customer...")
+
     customer_payload = {
         "doctype": "Customer",
         "customer_name": payload.get("customer_name") or phone,
@@ -75,14 +81,15 @@ def get_or_create_customer(payload: Dict[str, Any]) -> str:
         "customer_group": "Individual",
         "territory": "All Territories",
         "mobile_no": phone,
+
+        # 🔥 EMAIL FIELD (MUST MATCH YOUR ERP FIELD NAME)
         "custom_email": payload.get("email"),
-        "company_name": payload.get("company_name"),
-        "custom_vat_registration_number": payload.get("vat_number"),
-        "custom_cr_number": payload.get("cr_no"),
-        "custom_customer_code": payload.get("customer_code"),
     }
 
-    logger.info("Creating Customer with: %s", customer_payload)
+    if payload.get("vat_number"):
+        customer_payload["custom_vat_registration_number"] = payload["vat_number"]
+
+    logger.info("Customer Create Payload: %s", customer_payload)
 
     res = erp_request(
         "POST",
