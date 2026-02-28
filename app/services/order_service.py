@@ -21,12 +21,9 @@ class OrderValidationError(ValueError):
 def _today():
     return datetime.now(timezone.utc).date().isoformat()
 
-DEFAULT_WAREHOUSE = SiteControl.get_default_source_warehouse()
 
-if not DEFAULT_WAREHOUSE:
-    raise OrderValidationError("Default Source Warehouse not configured in E-Commerce Settings")
 # =================================================
-# FETCH ITEM (USED FOR RFQ)
+# FETCH ITEM (USED FOR RFQ PRICING)
 # =================================================
 def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
@@ -64,7 +61,7 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
 
 # =================================================
-# EXISTING RFQ FLOW (UNCHANGED LOGIC)
+# RFQ FLOW (UNCHANGED LOGIC)
 # =================================================
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
@@ -102,7 +99,6 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             "amount": qty * unit_price,
         })
 
-    # ADDRESS (MANDATORY FOR YOUR ERP RFQ)
     address = payload.get("address", {})
 
     rfq_payload = {
@@ -141,7 +137,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # =================================================
-# NEW — SALES ORDER (DRAFT)
+# SALES ORDER (FINAL FIXED VERSION)
 # =================================================
 def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
@@ -150,6 +146,13 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise OrderValidationError("Cart cannot be empty")
 
     customer_id = get_or_create_customer(payload)
+
+    DEFAULT_WAREHOUSE = SiteControl.get_default_source_warehouse()
+
+    if not DEFAULT_WAREHOUSE:
+        raise OrderValidationError(
+            "Default Source Warehouse not configured in E-Commerce Settings"
+        )
 
     items_payload = []
 
@@ -166,15 +169,16 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
             "item_code": item_code,
             "qty": qty,
             "rate": float(item.get("unit_price", 0)),
+            "warehouse": DEFAULT_WAREHOUSE,  # REQUIRED FOR STOCK ITEM
         })
 
     sales_order_payload = {
         "doctype": "Sales Order",
         "customer": customer_id,
         "transaction_date": _today(),
-        "delivery_date": _today(),  # FIXED: Required by your ERP
+        "delivery_date": _today(),
+        "set_warehouse": DEFAULT_WAREHOUSE,  # BACKUP SAFETY
         "items": items_payload,
-        "warehouse": DEFAULT_WAREHOUSE,
     }
 
     res = erp_request(
