@@ -56,7 +56,7 @@ def get_or_create_customer(payload: Dict[str, Any]) -> str:
     # Create new customer
     customer_payload = {
         "doctype": "Customer",
-        "customer_name": payload.get("customer_name") or phone,
+        "customer_name": payload.get("customer_name") ,
         "customer_type": payload.get("customer_type") or "Individual",
         "customer_group": "Individual",
         "territory": "All Territories",
