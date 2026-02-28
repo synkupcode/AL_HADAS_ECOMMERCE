@@ -80,7 +80,7 @@ def get_or_create_customer(payload: Dict[str, Any]) -> str:
         "customer_type": payload.get("customer_type") or "Individual",
         "customer_group": "Individual",
         "territory": "All Territories",
-        "mobile_no": phone,
+        "custom_phone_number": phone,
 
         # 🔥 EMAIL FIELD (MUST MATCH YOUR ERP FIELD NAME)
         "custom_email": payload.get("email"),
