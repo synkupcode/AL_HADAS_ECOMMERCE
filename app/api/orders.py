@@ -1,17 +1,19 @@
-
 from fastapi import APIRouter, HTTPException, Header
 from typing import Optional
 
 from app.core.config import settings
 from app.models.order_models import PlaceOrderIn
-from app.services.order_service import create_ecommerce_rfq
+from app.services.order_service import create_ecommerce_order
 from app.services.order_tracking import list_orders_by_phone, get_order_detail
+
 
 router = APIRouter(prefix="", tags=["orders"])
 
 
+# -------------------------------------------------
+# Frontend Token Protection (MVP Layer)
+# -------------------------------------------------
 def _require_frontend_token(x_frontend_token: Optional[str]) -> None:
-    # MVP protection while OTP is off
     if not settings.FRONTEND_SECRET_TOKEN:
         return
 
@@ -19,15 +21,20 @@ def _require_frontend_token(x_frontend_token: Optional[str]) -> None:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
+# -------------------------------------------------
+# Place Order (RFQ or Sales Order - ERP Driven)
+# -------------------------------------------------
 @router.post("/checkout/place-order")
 def place_order(
     payload: PlaceOrderIn,
-    x_frontend_token: Optional[str] = Header(default=None, alias="X-Frontend-Token"),
+    x_frontend_token: Optional[str] = Header(
+        default=None, alias="X-Frontend-Token"
+    ),
 ):
     _require_frontend_token(x_frontend_token)
 
     try:
-        return create_ecommerce_rfq(payload.model_dump())
+        return create_ecommerce_order(payload.model_dump())
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -36,11 +43,16 @@ def place_order(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# -------------------------------------------------
+# Order List (By Phone)
+# -------------------------------------------------
 @router.get("/orders")
 def my_orders(
     phone_number: str,
     limit: int = 50,
-    x_frontend_token: Optional[str] = Header(default=None, alias="X-Frontend-Token"),
+    x_frontend_token: Optional[str] = Header(
+        default=None, alias="X-Frontend-Token"
+    ),
 ):
     _require_frontend_token(x_frontend_token)
 
@@ -57,10 +69,15 @@ def my_orders(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# -------------------------------------------------
+# Order Detail
+# -------------------------------------------------
 @router.get("/orders/{rfq_id}")
 def order_detail(
     rfq_id: str,
-    x_frontend_token: Optional[str] = Header(default=None, alias="X-Frontend-Token"),
+    x_frontend_token: Optional[str] = Header(
+        default=None, alias="X-Frontend-Token"
+    ),
 ):
     _require_frontend_token(x_frontend_token)
 
