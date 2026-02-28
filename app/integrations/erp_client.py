@@ -75,7 +75,7 @@ def erp_request(
             response.status_code,
             response.text,
         )
-        raise ERPError(f"ERP error {response.status_code}")
+        raise ERPError(f"ERP error {response.status_code} - {response.text}")
 
     try:
         return response.json()
