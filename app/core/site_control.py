@@ -58,3 +58,8 @@ class SiteControl:
     def get_default_order_type(cls) -> str:
         settings = cls._get_settings()
         return settings.get("default_order_type", "E-Commerce RFQ")
+
+    @classmethod
+    def get_default_source_warehouse(cls) -> str:
+        settings = cls._get_settings()
+        return settings.get("default_source_warehouse")
