@@ -98,6 +98,9 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
         "building_no": address.get("building_no"),
         "postal_code": address.get("postal_code"),
         "city": address.get("city"),
+        "street_name": address.get("street_name"),
+        "district": address.get("district"),
+        "country": address.get("country"),
         "full_address": address.get("full_address"),
         "item_table": items_payload,
     }
@@ -131,6 +134,7 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise OrderValidationError("Cart cannot be empty")
 
     customer_id = get_or_create_customer(payload)
+    address = payload.get("address", {})
 
     DEFAULT_WAREHOUSE = SiteControl.get_default_source_warehouse()
     if not DEFAULT_WAREHOUSE:
@@ -174,6 +178,7 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         "set_warehouse": DEFAULT_WAREHOUSE,
         "selling_price_list": "Standard Selling",
         "items": items_payload,
+        "address_display": address.get("full_address"),
     }
 
     res = erp_request(
