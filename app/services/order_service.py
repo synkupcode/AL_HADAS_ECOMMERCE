@@ -8,22 +8,16 @@ from app.services.customer_service import get_or_create_customer
 from app.services.ecommerce.ecommerce_engine import EcommerceEngine
 
 
-# -------------------------------------------------
-# Custom Exception
-# -------------------------------------------------
 class OrderValidationError(ValueError):
     pass
 
 
-# -------------------------------------------------
-# Utility
-# -------------------------------------------------
 def _today():
     return datetime.now(timezone.utc).date().isoformat()
 
 
 # =================================================
-# FETCH ITEM (USED FOR RFQ PRICING)
+# FETCH ITEM
 # =================================================
 def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
@@ -61,7 +55,7 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
 
 # =================================================
-# RFQ FLOW (UNCHANGED)
+# RFQ (UNCHANGED)
 # =================================================
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
@@ -70,17 +64,11 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise OrderValidationError("Cart cannot be empty")
 
     customer_id = get_or_create_customer(payload)
-
     items_payload = []
 
     for item in cart:
         item_code = item.get("item_code")
-        if not item_code:
-            raise OrderValidationError("Item code required")
-
         qty = float(item.get("qty", 0))
-        if qty <= 0:
-            raise OrderValidationError("Quantity must be greater than zero")
 
         item_data = _fetch_item_from_erp(item_code)
         transformed = EcommerceEngine.transform_item(item_data)
@@ -125,9 +113,6 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     doc = res.get("data") or {}
     rfq_id = doc.get("name")
 
-    if not rfq_id:
-        raise OrderValidationError("RFQ creation failed")
-
     return {
         "status": "submitted",
         "ecommerce_rfq_id": rfq_id,
@@ -137,7 +122,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # =================================================
-# SALES ORDER (FINAL FIXED VERSION)
+# SALES ORDER (NOW USING SAME PRICE ENGINE)
 # =================================================
 def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
@@ -148,7 +133,6 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
     customer_id = get_or_create_customer(payload)
 
     DEFAULT_WAREHOUSE = SiteControl.get_default_source_warehouse()
-
     if not DEFAULT_WAREHOUSE:
         raise OrderValidationError(
             "Default Source Warehouse not configured in E-Commerce Settings"
@@ -158,14 +142,19 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     for item in cart:
         item_code = item.get("item_code")
-        if not item_code:
-            raise OrderValidationError("Item code required")
-
         qty = float(item.get("qty", 0))
+
         if qty <= 0:
             raise OrderValidationError("Quantity must be greater than zero")
 
-        unit_price = float(item.get("unit_price", 0))
+        # 🔥 FETCH PRICE FROM ERP (SAME AS RFQ)
+        item_data = _fetch_item_from_erp(item_code)
+        transformed = EcommerceEngine.transform_item(item_data)
+
+        if not transformed["is_price_visible"]:
+            raise OrderValidationError(f"Price hidden for item {item_code}")
+
+        unit_price = transformed["price"]
 
         items_payload.append({
             "item_code": item_code,
@@ -196,9 +185,6 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
     doc = res.get("data") or {}
     so_id = doc.get("name")
 
-    if not so_id:
-        raise OrderValidationError("Sales Order creation failed")
-
     return {
         "status": "draft",
         "sales_order_id": so_id,
@@ -207,7 +193,7 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # =================================================
-# UNIFIED ENTRY POINT
+# ENTRY POINT
 # =================================================
 def create_ecommerce_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
