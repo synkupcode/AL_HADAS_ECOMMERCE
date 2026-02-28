@@ -23,7 +23,7 @@ def _today():
 
 
 # =================================================
-# FETCH ITEM (Used for RFQ Pricing)
+# FETCH ITEM (USED FOR RFQ)
 # =================================================
 def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
@@ -61,7 +61,7 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
 
 # =================================================
-# EXISTING RFQ FLOW (RESTORED + ADDRESS REQUIRED)
+# EXISTING RFQ FLOW (UNCHANGED LOGIC)
 # =================================================
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
@@ -99,23 +99,19 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             "amount": qty * unit_price,
         })
 
-    # 🔥 ADDRESS (MANDATORY FOR YOUR ERP)
+    # ADDRESS (MANDATORY FOR YOUR ERP RFQ)
     address = payload.get("address", {})
 
     rfq_payload = {
         "doctype": settings.ECOM_RFQ_DOCTYPE,
         "customer_name": customer_id,
-
-        # Required fields in ERP
         "building_no": address.get("building_no"),
         "postal_code": address.get("postal_code"),
         "city": address.get("city"),
         "full_address": address.get("full_address"),
-
         "item_table": items_payload,
     }
 
-    # Remove empty values safely
     rfq_payload = {
         k: v for k, v in rfq_payload.items()
         if v not in (None, "", [])
@@ -172,7 +168,8 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
     sales_order_payload = {
         "doctype": "Sales Order",
         "customer": customer_id,
-        "transaction_date": _today(),  # auto-safe
+        "transaction_date": _today(),
+        "delivery_date": _today(),  # FIXED: Required by your ERP
         "items": items_payload,
     }
 
@@ -196,7 +193,7 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # =================================================
-# UNIFIED ENTRY POINT (USED BY ROUTER)
+# UNIFIED ENTRY POINT
 # =================================================
 def create_ecommerce_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
