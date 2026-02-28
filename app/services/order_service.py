@@ -21,7 +21,10 @@ class OrderValidationError(ValueError):
 def _today():
     return datetime.now(timezone.utc).date().isoformat()
 
+DEFAULT_WAREHOUSE = SiteControl.get_default_source_warehouse()
 
+if not DEFAULT_WAREHOUSE:
+    raise OrderValidationError("Default Source Warehouse not configured in E-Commerce Settings")
 # =================================================
 # FETCH ITEM (USED FOR RFQ)
 # =================================================
@@ -171,6 +174,7 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         "transaction_date": _today(),
         "delivery_date": _today(),  # FIXED: Required by your ERP
         "items": items_payload,
+        "warehouse": DEFAULT_WAREHOUSE,
     }
 
     res = erp_request(
