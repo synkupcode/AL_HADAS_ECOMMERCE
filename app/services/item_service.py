@@ -11,7 +11,6 @@ from app.services.ecommerce.ecommerce_engine import EcommerceEngine
 
 
 DEFAULT_PAGE_SIZE = 100
-
 ERP_BASE_URL = os.getenv("ERP_BASE_URL", "").rstrip("/")
 
 
@@ -37,18 +36,18 @@ def get_products(
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> Dict[str, Any]:
 
-    # =================================================
-    # 🔐 MASTER ERP SWITCH
-    # =================================================
+    # -------------------------------------------------
+    # 🔐 MASTER INTEGRATION SWITCH
+    # -------------------------------------------------
     if not SiteControl.is_website_integration_enabled():
         raise HTTPException(
             status_code=503,
             detail="E-commerce integration is currently disabled."
         )
 
-    # =================================================
+    # -------------------------------------------------
     # 🔐 GLOBAL CATALOG SWITCH
-    # =================================================
+    # -------------------------------------------------
     if not SiteControl.is_item_sync_enabled():
         return {
             "status": "catalog_disabled",
@@ -62,18 +61,15 @@ def get_products(
             "last_sync": None,
         }
 
-    # =================================================
-    # VALIDATION
-    # =================================================
     if page < 1:
         page = 1
 
     if page_size < 1:
         page_size = DEFAULT_PAGE_SIZE
 
-    # =================================================
+    # -------------------------------------------------
     # FILTERS
-    # =================================================
+    # -------------------------------------------------
     filters: List[Any] = [
         ["disabled", "=", 0],
         ["custom_enable_item", "=", 1],
@@ -85,9 +81,9 @@ def get_products(
     if subcategory:
         filters.append(["custom_subcategory", "=", subcategory])
 
-    # =================================================
+    # -------------------------------------------------
     # FIELDS
-    # =================================================
+    # -------------------------------------------------
     fields = [
         "item_code",
         "item_name",
@@ -115,10 +111,6 @@ def get_products(
         "custom_show_stock",
     ]
 
-    erp_order = "modified desc"
-    if order_by == "newest":
-        erp_order = "modified desc"
-
     start = (page - 1) * page_size
 
     params = {
@@ -126,12 +118,12 @@ def get_products(
         "fields": json.dumps(fields),
         "limit_start": start,
         "limit_page_length": page_size,
-        "order_by": erp_order,
+        "order_by": "modified desc",
     }
 
-    # =================================================
+    # -------------------------------------------------
     # TOTAL COUNT
-    # =================================================
+    # -------------------------------------------------
     count_response = erp_request(
         "GET",
         "/api/resource/Item",
@@ -145,9 +137,9 @@ def get_products(
     total_items = len(count_response.get("data", []) or [])
     total_pages = (total_items + page_size - 1) // page_size if page_size > 0 else 1
 
-    # =================================================
+    # -------------------------------------------------
     # MAIN DATA REQUEST
-    # =================================================
+    # -------------------------------------------------
     response = erp_request(
         "GET",
         "/api/resource/Item",
@@ -156,9 +148,6 @@ def get_products(
 
     items = response.get("data", []) or []
 
-    # =================================================
-    # SEARCH FILTER
-    # =================================================
     if search:
         search_lower = search.lower()
         items = [
@@ -167,32 +156,29 @@ def get_products(
             or search_lower in (item.get("item_code") or "").lower()
         ]
 
-    # =================================================
+    # -------------------------------------------------
     # TRANSFORM
-    # =================================================
+    # -------------------------------------------------
     formatted_items = []
 
     for item in items:
 
         ecommerce_data = EcommerceEngine.transform_item(item)
 
-        # 🔐 GLOBAL PRICE VISIBILITY OVERRIDE
-        if not SiteControl.is_price_visibility_enabled():
-            ecommerce_data["price"] = None
-            ecommerce_data["original_price"] = None
-            ecommerce_data["discount_percentage"] = 0
-            ecommerce_data["is_on_sale"] = False
-            ecommerce_data["is_price_visible"] = False
+        # 🔐 ONLY CONTROL DISPLAY — DO NOT OVERRIDE ENGINE VALUES
+        is_price_visible_global = SiteControl.is_price_visibility_enabled()
 
         formatted_items.append({
             "item_code": item.get("item_code") or "",
             "item_name": item.get("item_name") or "",
             "description": item.get("description") or "",
-            "price": ecommerce_data["price"],
+            "price": ecommerce_data["price"] if is_price_visible_global else None,
             "original_price": ecommerce_data["original_price"],
             "discount_percentage": ecommerce_data["discount_percentage"],
             "is_on_sale": ecommerce_data["is_on_sale"],
-            "image": normalize_image(ecommerce_data["image"]),
+            "image": normalize_image(
+                ecommerce_data["image"]
+            ),
             "category": item.get("item_group") or "Uncategorized",
             "subcategory": item.get("custom_subcategory") or "Other",
             "stock_status": ecommerce_data["stock_status"],
@@ -200,9 +186,9 @@ def get_products(
             "is_image_visible": ecommerce_data["is_image_visible"],
         })
 
-    # =================================================
-    # RESPONSE
-    # =================================================
+    # -------------------------------------------------
+    # FINAL RESPONSE
+    # -------------------------------------------------
     return {
         "status": "success",
         "items": formatted_items,
