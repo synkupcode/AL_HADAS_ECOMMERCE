@@ -11,17 +11,23 @@ class SiteControl:
     """
 
     SETTINGS_NAME = "1tk6cucvc9"
-    CACHE_TTL = 60  # seconds (production-safe)
+    CACHE_TTL = 60  # seconds
 
     _cache: Dict[str, Any] | None = None
     _last_fetch: float = 0
 
-    # -----------------------------------
-    # Core Settings Fetch (With Cache)
-    # -----------------------------------
+    # -----------------------------
+    # Utilities
+    # -----------------------------
+    @staticmethod
+    def _to_bool(value: Any) -> bool:
+        return str(value).strip() in ["1", "true", "True", "YES", "yes"]
+
+    # -----------------------------
+    # Core Settings Fetch (Cached)
+    # -----------------------------
     @classmethod
     def _get_settings(cls) -> Dict[str, Any]:
-
         now = time.time()
 
         if cls._cache and (now - cls._last_fetch) < cls.CACHE_TTL:
@@ -32,14 +38,14 @@ class SiteControl:
             path=f"/api/resource/E-Commerce Settings/{cls.SETTINGS_NAME}",
         )
 
-        cls._cache = response.get("data", {})
+        cls._cache = response.get("data", {}) or {}
         cls._last_fetch = now
 
         return cls._cache
 
-    # -----------------------------------
-    # Tab 1 — Store Visibility
-    # -----------------------------------
+    # -----------------------------
+    # Store Visibility
+    # -----------------------------
     @classmethod
     def get_store_visibility(cls) -> str:
         settings = cls._get_settings()
@@ -47,13 +53,35 @@ class SiteControl:
 
     @classmethod
     def is_site_frozen(cls) -> bool:
-        """
-        Returns True if site should be frozen
-        (Maintenance or Disable)
-        """
         visibility = cls.get_store_visibility()
         return visibility in ["Maintenance", "Disable"]
-        
+
+    # -----------------------------
+    # Integration Controls
+    # -----------------------------
+    @classmethod
+    def is_website_integration_enabled(cls) -> bool:
+        settings = cls._get_settings()
+        return cls._to_bool(settings.get("website_integration"))
+
+    @classmethod
+    def is_item_sync_enabled(cls) -> bool:
+        settings = cls._get_settings()
+        return cls._to_bool(settings.get("enable_item_sync"))
+
+    @classmethod
+    def is_customer_sync_enabled(cls) -> bool:
+        settings = cls._get_settings()
+        return cls._to_bool(settings.get("enable_customer_sync"))
+
+    @classmethod
+    def is_price_visibility_enabled(cls) -> bool:
+        settings = cls._get_settings()
+        return cls._to_bool(settings.get("enable_price_visibility"))
+
+    # -----------------------------
+    # Default Order Settings
+    # -----------------------------
     @classmethod
     def get_default_order_type(cls) -> str:
         settings = cls._get_settings()
