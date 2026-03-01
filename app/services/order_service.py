@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
 from typing import Dict, Any, List
 
+from fastapi import HTTPException
+
 from app.core.site_control import SiteControl
 from app.core.config import settings
-from app.integrations.erp_client import erp_request
+from app.integrations.erp_client import erp_request, ERPError
 from app.services.customer_service import get_or_create_customer
 from app.services.ecommerce.ecommerce_engine import EcommerceEngine
 
@@ -41,11 +43,14 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
         "custom_show_price",
     ]
 
-    res = erp_request(
-        method="GET",
-        path=f"/api/resource/Item/{item_code}",
-        params={"fields": str(fields).replace("'", '"')},
-    )
+    try:
+        res = erp_request(
+            method="GET",
+            path=f"/api/resource/Item/{item_code}",
+            params={"fields": str(fields).replace("'", '"')},
+        )
+    except ERPError:
+        raise OrderValidationError("Item service temporarily unavailable.")
 
     item = res.get("data")
     if not item:
@@ -55,9 +60,24 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
 
 # =================================================
-# RFQ (UNCHANGED — STILL WORKING)
+# RFQ
 # =================================================
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
+
+    # 🔐 MASTER SWITCH
+    if not SiteControl.is_website_integration_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="E-commerce integration is currently disabled."
+        )
+
+    # 🔐 CUSTOMER CONTROL
+    if not SiteControl.is_customer_sync_enabled():
+        raise OrderValidationError("Customer service is disabled.")
+
+    # 🔐 MAINTENANCE CHECK
+    if SiteControl.is_site_frozen():
+        raise OrderValidationError("Store is currently under maintenance.")
 
     cart: List[Dict[str, Any]] = payload.get("cart", [])
     if not cart:
@@ -90,28 +110,20 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             "amount": qty * unit_price,
         })
 
-    address = payload.get("address", {})
-
     rfq_payload = {
         "doctype": settings.ECOM_RFQ_DOCTYPE,
         "customer_name": customer_id,
-        "building_no": address.get("building_no"),
-        "postal_code": address.get("postal_code"),
-        "city": address.get("city"),
-        "street_name": address.get("street_name"),
-        "district": address.get("district"),
-        "country": address.get("country"),
-        "full_address": address.get("full_address"),
         "item_table": items_payload,
     }
 
-    rfq_payload = {k: v for k, v in rfq_payload.items() if v not in (None, "", [])}
-
-    res = erp_request(
-        method="POST",
-        path=f"/api/resource/{settings.ECOM_RFQ_DOCTYPE}",
-        json=rfq_payload,
-    )
+    try:
+        res = erp_request(
+            method="POST",
+            path=f"/api/resource/{settings.ECOM_RFQ_DOCTYPE}",
+            json=rfq_payload,
+        )
+    except ERPError:
+        raise OrderValidationError("Order service temporarily unavailable.")
 
     doc = res.get("data") or {}
     rfq_id = doc.get("name")
@@ -125,9 +137,24 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # =================================================
-# SALES ORDER (WORKING + FRONTEND COMPATIBLE)
+# SALES ORDER
 # =================================================
 def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
+
+    # 🔐 MASTER SWITCH
+    if not SiteControl.is_website_integration_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="E-commerce integration is currently disabled."
+        )
+
+    # 🔐 CUSTOMER CONTROL
+    if not SiteControl.is_customer_sync_enabled():
+        raise OrderValidationError("Customer service is disabled.")
+
+    # 🔐 MAINTENANCE CHECK
+    if SiteControl.is_site_frozen():
+        raise OrderValidationError("Store is currently under maintenance.")
 
     cart: List[Dict[str, Any]] = payload.get("cart", [])
     if not cart:
@@ -138,9 +165,7 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     DEFAULT_WAREHOUSE = SiteControl.get_default_source_warehouse()
     if not DEFAULT_WAREHOUSE:
-        raise OrderValidationError(
-            "Default Source Warehouse not configured in E-Commerce Settings"
-        )
+        raise OrderValidationError("Default warehouse not configured.")
 
     items_payload = []
 
@@ -151,7 +176,6 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         if qty <= 0:
             raise OrderValidationError("Quantity must be greater than zero")
 
-        # 🔥 Fetch price same as RFQ
         item_data = _fetch_item_from_erp(item_code)
         transformed = EcommerceEngine.transform_item(item_data)
 
@@ -181,19 +205,21 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         "address_display": address.get("full_address"),
     }
 
-    res = erp_request(
-        method="POST",
-        path="/api/resource/Sales Order",
-        json=sales_order_payload,
-    )
+    try:
+        res = erp_request(
+            method="POST",
+            path="/api/resource/Sales Order",
+            json=sales_order_payload,
+        )
+    except ERPError:
+        raise OrderValidationError("Order service temporarily unavailable.")
 
     doc = res.get("data") or {}
     so_id = doc.get("name")
 
-    # 🔥 IMPORTANT: return same key as RFQ so frontend works
     return {
         "status": "submitted",
-        "ecommerce_rfq_id": so_id,  # reuse key intentionally
+        "ecommerce_rfq_id": so_id,
         "customer_id": customer_id,
         "created_at": _today(),
     }
@@ -213,4 +239,4 @@ def create_ecommerce_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         return create_sales_order(payload)
 
     else:
-        raise OrderValidationError("Invalid Default Order Type in Settings")
+        raise OrderValidationError("Invalid Default Order Type.")
