@@ -3,23 +3,19 @@ import os
 from typing import Any, Dict, Optional, List
 from datetime import datetime, timezone
 
+from fastapi import HTTPException
+
+from app.core.site_control import SiteControl
 from app.integrations.erp_client import erp_request
 from app.services.ecommerce.ecommerce_engine import EcommerceEngine
 
 
 DEFAULT_PAGE_SIZE = 100
 
-# -------------------------------------------------
-# ERP BASE URL (used for image normalization)
-# -------------------------------------------------
 ERP_BASE_URL = os.getenv("ERP_BASE_URL", "").rstrip("/")
 
 
 def normalize_image(image_path: Optional[str]) -> str:
-    """
-    Converts relative ERP image paths into full URLs.
-    Leaves full URLs unchanged.
-    """
     if not image_path:
         return ""
 
@@ -41,21 +37,46 @@ def get_products(
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> Dict[str, Any]:
 
-    # --------------------
+    # =================================================
+    # 🔐 MASTER ERP SWITCH
+    # =================================================
+    if not SiteControl.is_website_integration_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="E-commerce integration is currently disabled."
+        )
+
+    # =================================================
+    # 🔐 GLOBAL CATALOG SWITCH
+    # =================================================
+    if not SiteControl.is_item_sync_enabled():
+        return {
+            "status": "catalog_disabled",
+            "items": [],
+            "pagination": {
+                "page": 1,
+                "page_size": 0,
+                "total_items": 0,
+                "total_pages": 0,
+            },
+            "last_sync": None,
+        }
+
+    # =================================================
     # VALIDATION
-    # --------------------
+    # =================================================
     if page < 1:
         page = 1
 
     if page_size < 1:
         page_size = DEFAULT_PAGE_SIZE
 
-    # --------------------
-    # FILTERS (ERP LEVEL)
-    # --------------------
+    # =================================================
+    # FILTERS
+    # =================================================
     filters: List[Any] = [
         ["disabled", "=", 0],
-        ["custom_enable_item", "=", 1],  # Website visibility control
+        ["custom_enable_item", "=", 1],
     ]
 
     if category:
@@ -64,26 +85,21 @@ def get_products(
     if subcategory:
         filters.append(["custom_subcategory", "=", subcategory])
 
-    # --------------------
-    # FIELDS (ALL Ecommerce Fields)
-    # --------------------
+    # =================================================
+    # FIELDS
+    # =================================================
     fields = [
-        # Basic
         "item_code",
         "item_name",
         "custom_subcategory",
         "image",
         "description",
         "item_group",
-
-        # Pricing Fields
         "custom_standard_selling_price",
         "custom_ecommerce_price",
         "custom_mrp_price",
         "custom_fixed_price",
         "custom_mrp_rate",
-
-        # Promotion Fields
         "custom_enable_promotion",
         "custom_promotion_base_price",
         "custom_promotion_type",
@@ -94,26 +110,15 @@ def get_products(
         "custom_promotional_price",
         "custom_promotional_rate",
         "custom_show_strike_price",
-
-        # Visibility Fields
         "custom_show_price",
         "custom_show_image",
         "custom_show_stock",
     ]
 
-    # --------------------
-    # SORTING
-    # --------------------
     erp_order = "modified desc"
-
     if order_by == "newest":
         erp_order = "modified desc"
 
-    # (price sorting intentionally deferred because price is computed)
-
-    # --------------------
-    # PAGINATION
-    # --------------------
     start = (page - 1) * page_size
 
     params = {
@@ -124,32 +129,25 @@ def get_products(
         "order_by": erp_order,
     }
 
-    # --------------------
+    # =================================================
     # TOTAL COUNT
-    # --------------------
-    count_params = {
-        "filters": json.dumps(filters),
-        "fields": json.dumps(["name"]),
-        "limit_page_length": 0,
-    }
-
+    # =================================================
     count_response = erp_request(
         "GET",
         "/api/resource/Item",
-        params=count_params,
+        params={
+            "filters": json.dumps(filters),
+            "fields": json.dumps(["name"]),
+            "limit_page_length": 0,
+        },
     )
 
     total_items = len(count_response.get("data", []) or [])
+    total_pages = (total_items + page_size - 1) // page_size if page_size > 0 else 1
 
-    total_pages = (
-        (total_items + page_size - 1) // page_size
-        if page_size > 0
-        else 1
-    )
-
-    # --------------------
+    # =================================================
     # MAIN DATA REQUEST
-    # --------------------
+    # =================================================
     response = erp_request(
         "GET",
         "/api/resource/Item",
@@ -158,9 +156,9 @@ def get_products(
 
     items = response.get("data", []) or []
 
-    # --------------------
-    # SEARCH FILTER (POST-PROCESS)
-    # --------------------
+    # =================================================
+    # SEARCH FILTER
+    # =================================================
     if search:
         search_lower = search.lower()
         items = [
@@ -169,14 +167,22 @@ def get_products(
             or search_lower in (item.get("item_code") or "").lower()
         ]
 
-    # --------------------
-    # APPLY ECOMMERCE ENGINE
-    # --------------------
+    # =================================================
+    # TRANSFORM
+    # =================================================
     formatted_items = []
 
     for item in items:
 
         ecommerce_data = EcommerceEngine.transform_item(item)
+
+        # 🔐 GLOBAL PRICE VISIBILITY OVERRIDE
+        if not SiteControl.is_price_visibility_enabled():
+            ecommerce_data["price"] = None
+            ecommerce_data["original_price"] = None
+            ecommerce_data["discount_percentage"] = 0
+            ecommerce_data["is_on_sale"] = False
+            ecommerce_data["is_price_visible"] = False
 
         formatted_items.append({
             "item_code": item.get("item_code") or "",
@@ -194,9 +200,9 @@ def get_products(
             "is_image_visible": ecommerce_data["is_image_visible"],
         })
 
-    # --------------------
-    # FINAL RESPONSE (FRONTEND SAFE)
-    # --------------------
+    # =================================================
+    # RESPONSE
+    # =================================================
     return {
         "status": "success",
         "items": formatted_items,
