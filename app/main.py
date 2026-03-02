@@ -10,7 +10,7 @@ from app.core.site_control import SiteControl
 from app.api.items import router as items_router
 from app.api.orders import router as orders_router
 from app.api.customers import router as customers_router
-
+from app.api.contact import router as contact_router
 
 # -------------------------------------------------
 # Create FastAPI App
@@ -84,7 +84,7 @@ app.include_router(status_router)
 app.include_router(items_router)
 app.include_router(orders_router)
 app.include_router(customers_router)
-
+app.include_router(contact_router)
 
 # -------------------------------------------------
 # Health Check
