@@ -18,7 +18,6 @@ def send_enquiry_email(
     <p>{message}</p>
     """
 
-    # Use ERPNext to send email
     erp_request(
         method="POST",
         path="/api/method/frappe.core.doctype.communication.email.make",
@@ -27,6 +26,7 @@ def send_enquiry_email(
             "subject": f"Website Enquiry - {inquiry_type}",
             "content": html_content,
             "communication_medium": "Email",
-            "send_email": 1
+            "send_email": 1,
+            "reply_to": email  # 🔥 THIS IS THE FIX
         },
     )
