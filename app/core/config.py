@@ -34,5 +34,10 @@ class Settings:
     ECOM_RFQ_DOCTYPE: str = "E-Commerce RFQ"
     ECOM_RFQ_ITEM_TABLE_FIELD: str = "item_table"
 
+    # -------------------------
+    # CONTACT / ENQUIRY
+    # -------------------------
+    SALES_EMAIL: str = os.getenv("SALES_EMAIL", "sales@alhadasksa.com")
+
 
 settings = Settings()
