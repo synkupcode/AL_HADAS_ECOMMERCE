@@ -5,7 +5,7 @@ from email.mime.multipart import MIMEMultipart
 from app.core.config import settings
 
 
-dfrom app.integrations.erp_client import erp_request
+from app.integrations.erp_client import erp_request
 
 
 def send_email(to_email: str, subject: str, html_content: str):
