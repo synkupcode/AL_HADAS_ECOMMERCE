@@ -32,7 +32,31 @@ def _find_customer_by_phone(phone: str) -> str | None:
         return data[0]["name"]
 
     return None
+# -------------------------------------------------
+# Find Customer by Email (SAFE VERSION)
+# -------------------------------------------------
+def find_customer_by_email(email: str) -> Dict[str, Any] | None:
+    try:
+        res = erp_request(
+            "GET",
+            "/api/resource/Customer",
+            params={
+                "filters": f'[["custom_email","=","{email}"]]',
+                "fields": '["name","customer_name","custom_phone_number","custom_email","custom_vat_registration_number"]',
+            },
+        )
+    except ERPError:
+        raise CustomerError("Customer lookup temporarily unavailable.")
 
+    data = res.get("data") or []
+
+    if len(data) > 1:
+        raise CustomerError("Multiple customers found with same email. Contact support.")
+
+    if data:
+        return data[0]
+
+    return None
 
 # -------------------------------------------------
 # Get or Create Customer
