@@ -3,7 +3,8 @@ from pydantic import BaseModel, EmailStr
 
 from app.core.config import settings
 from app.integrations.erp_client import erp_request, ERPError
-from app.main import limiter  # Import limiter from main app
+from app.core.rate_limiter import limiter
+
 
 router = APIRouter()
 
