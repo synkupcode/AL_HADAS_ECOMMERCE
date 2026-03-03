@@ -1,7 +1,9 @@
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr
+
 from app.core.config import settings
 from app.integrations.erp_client import erp_request, ERPError
+from app.main import limiter  # Import limiter from main app
 
 router = APIRouter()
 
@@ -18,11 +20,12 @@ class ContactRequest(BaseModel):
 
 
 # -----------------------------
-# Contact Endpoint
+# Contact Endpoint (Rate Limited)
 # -----------------------------
 
 @router.post("/api/contact")
-def submit_contact(payload: ContactRequest):
+@limiter.limit("5/minute")  # ✅ Rate Limit Applied Here
+def submit_contact(request: Request, payload: ContactRequest):
 
     try:
         # Build email content
