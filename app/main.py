@@ -1,8 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi import APIRouter
+
+# Rate Limiting
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.core.config import settings
 from app.core.site_control import SiteControl
@@ -18,6 +23,23 @@ from app.api.contact import router as contact_router
 
 app = FastAPI(title="AL HADAS Ecommerce Middleware")
 
+# -------------------------------------------------
+# Rate Limiter Setup
+# -------------------------------------------------
+
+limiter = Limiter(key_func=get_remote_address)
+
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+
+@app.exception_handler(RateLimitExceeded)
+def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": "Too many requests. Please try again later."
+        },
+    )
 
 # -------------------------------------------------
 # Store Freeze Middleware (Backend Protection)
@@ -46,7 +68,6 @@ class StoreFreezeMiddleware(BaseHTTPMiddleware):
 
         return await call_next(request)
 
-
 # -------------------------------------------------
 # Add Middleware (IMPORTANT ORDER)
 # -------------------------------------------------
@@ -61,10 +82,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # -------------------------------------------------
 # Store Status Endpoint (For Next.js UI Control)
 # -------------------------------------------------
+
+from fastapi import APIRouter
 
 status_router = APIRouter()
 
@@ -75,7 +97,6 @@ def store_status():
     }
 
 app.include_router(status_router)
-
 
 # -------------------------------------------------
 # Include Existing Routers
