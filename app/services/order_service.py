@@ -1,242 +1,267 @@
-from datetime import datetime, timezone
-from typing import Dict, Any, List
+"use client"
 
-from fastapi import HTTPException
+import { useState } from "react"
+import Navbar from "../components/Navbar"
+import Footer from "../components/Footer"
 
-from app.core.site_control import SiteControl
-from app.core.config import settings
-from app.integrations.erp_client import erp_request, ERPError
-from app.services.customer_service import get_or_create_customer
-from app.services.ecommerce.ecommerce_engine import EcommerceEngine
+export default function ContactPage() {
 
+  const [formData, setFormData] = useState({
+    fullName: "",
+    email: "",
+    inquiryType: "",
+    message: ""
+  })
 
-class OrderValidationError(ValueError):
-    pass
+  const [loading, setLoading] = useState(false)
+  const [success, setSuccess] = useState(false)
 
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    })
+  }
 
-def _today():
-    return datetime.now(timezone.utc).date().isoformat()
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
 
+    if (!formData.fullName || !formData.email || !formData.inquiryType || !formData.message) {
+      alert("Please fill all fields")
+      return
+    }
 
-# =================================================
-# FETCH ITEM FROM ERP (USED FOR PRICING)
-# =================================================
-def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
+    setLoading(true)
+    setSuccess(false)
 
-    fields = [
-        "item_code",
-        "item_name",
-        "custom_standard_selling_price",
-        "custom_ecommerce_price",
-        "custom_mrp_price",
-        "custom_fixed_price",
-        "custom_mrp_rate",
-        "custom_enable_promotion",
-        "custom_promotion_base_price",
-        "custom_promotion_type",
-        "custom_promotion_discount_",
-        "custom_promotion_start",
-        "custom_promotion_end",
-        "custom_promotion_price_manual",
-        "custom_promotional_price",
-        "custom_promotional_rate",
-        "custom_show_price",
-    ]
+    try {
+      const response = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData)
+      })
 
-    try:
-        res = erp_request(
-            method="GET",
-            path=f"/api/resource/Item/{item_code}",
-            params={"fields": str(fields).replace("'", '"')},
-        )
-    except ERPError:
-        raise OrderValidationError("Item service temporarily unavailable.")
+      const data = await response.json()
 
-    item = res.get("data")
-    if not item:
-        raise OrderValidationError(f"Item not found: {item_code}")
-
-    return item
-
-
-# =================================================
-# RFQ
-# =================================================
-def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
-
-    # 🔐 MASTER SWITCH
-    if not SiteControl.is_website_integration_enabled():
-        raise HTTPException(
-            status_code=503,
-            detail="E-commerce integration is currently disabled."
-        )
-
-    # 🔐 CUSTOMER CONTROL
-    if not SiteControl.is_customer_sync_enabled():
-        raise OrderValidationError("Customer service is disabled.")
-
-    # 🔐 MAINTENANCE CHECK
-    if SiteControl.is_site_frozen():
-        raise OrderValidationError("Store is currently under maintenance.")
-
-    cart: List[Dict[str, Any]] = payload.get("cart", [])
-    if not cart:
-        raise OrderValidationError("Cart cannot be empty")
-
-    customer_id = get_or_create_customer(payload)
-    items_payload = []
-
-    for item in cart:
-        item_code = item.get("item_code")
-        qty = float(item.get("qty", 0))
-
-        if qty <= 0:
-            raise OrderValidationError("Quantity must be greater than zero")
-
-        item_data = _fetch_item_from_erp(item_code)
-        transformed = EcommerceEngine.transform_item(item_data)
-
-        if not transformed["is_price_visible"]:
-            raise OrderValidationError(f"Price hidden for item {item_code}")
-
-        unit_price = transformed["price"]
-
-        items_payload.append({
-            "item_code": item_code,
-            "item_name": item.get("item_name"),
-            "quantity": qty,
-            "unit_pricex": unit_price,
-            "uom": item.get("uom"),
-            "amount": qty * unit_price,
+      if (response.ok) {
+        setSuccess(true)
+        setFormData({
+          fullName: "",
+          email: "",
+          inquiryType: "",
+          message: ""
         })
+      } else {
+        alert(data.detail || "Failed to send inquiry")
+      }
 
-    rfq_payload = {
-        "doctype": settings.ECOM_RFQ_DOCTYPE,
-        "customer_name": customer_id,
-        "item_table": items_payload,
+    } catch {
+      alert("Server error")
     }
 
-    try:
-        res = erp_request(
-            method="POST",
-            path=f"/api/resource/{settings.ECOM_RFQ_DOCTYPE}",
-            json=rfq_payload,
-        )
-    except ERPError:
-        raise OrderValidationError("Order service temporarily unavailable.")
+    setLoading(false)
+  }
 
-    doc = res.get("data") or {}
-    rfq_id = doc.get("name")
+  return (
+    <>
+      <Navbar />
 
-    return {
-        "status": "submitted",
-        "ecommerce_rfq_id": rfq_id,
-        "customer_id": customer_id,
-        "created_at": _today(),
-    }
+      <section className="relative min-h-screen flex items-center py-20 md:py-28 bg-gradient-to-br from-[#081a2f] via-[#0d3b66] to-[#081a2f] overflow-hidden">
 
+        <div className="absolute -top-32 -left-32 w-[500px] h-[500px] bg-[#b11217]/20 blur-[140px] rounded-full"></div>
+        <div className="absolute -bottom-32 -right-32 w-[600px] h-[600px] bg-[#0a2540]/30 blur-[160px] rounded-full"></div>
 
-# =================================================
-# SALES ORDER
-# =================================================
-def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
+        <div className="relative max-w-7xl mx-auto px-6 w-full z-10">
 
-    # 🔐 MASTER SWITCH
-    if not SiteControl.is_website_integration_enabled():
-        raise HTTPException(
-            status_code=503,
-            detail="E-commerce integration is currently disabled."
-        )
+          <div className="grid lg:grid-cols-2 gap-16 xl:gap-24 items-start">
 
-    # 🔐 CUSTOMER CONTROL
-    if not SiteControl.is_customer_sync_enabled():
-        raise OrderValidationError("Customer service is disabled.")
+            {/* LEFT */}
+            <div className="space-y-10 text-white">
 
-    # 🔐 MAINTENANCE CHECK
-    if SiteControl.is_site_frozen():
-        raise OrderValidationError("Store is currently under maintenance.")
+              <div>
+                <h1 className="text-4xl md:text-5xl font-bold leading-tight">
+                  Let’s Build Something <br />
+                  Exceptional Together
+                </h1>
 
-    cart: List[Dict[str, Any]] = payload.get("cart", [])
-    if not cart:
-        raise OrderValidationError("Cart cannot be empty")
+                <p className="mt-6 text-white/80 text-lg max-w-lg">
+                  Whether you have a product inquiry, bulk order requirement,
+                  or need technical assistance — our team is ready to support you.
+                </p>
+              </div>
 
-    customer_id = get_or_create_customer(payload)
-    address = payload.get("address", {})
+              <div className="space-y-8">
 
-    DEFAULT_WAREHOUSE = SiteControl.get_default_source_warehouse()
-    if not DEFAULT_WAREHOUSE:
-        raise OrderValidationError("Default warehouse not configured.")
+                <ContactItem icon={<OfficeIcon />} title="Head Office"
+                  content="Kingdom of Saudi Arabia, Riyadh 113513 – Al Takhassusi"
+                />
 
-    items_payload = []
+                <ContactItem icon={<MailIcon />} title="Email Address"
+                  content="sales@alhadasksa.com"
+                />
 
-    for item in cart:
-        item_code = item.get("item_code")
-        qty = float(item.get("qty", 0))
+                <ContactItem icon={<PhoneIcon />} title="Phone Number"
+                  content="+966 54 678 4641"
+                />
 
-        if qty <= 0:
-            raise OrderValidationError("Quantity must be greater than zero")
+              </div>
 
-        item_data = _fetch_item_from_erp(item_code)
-        transformed = EcommerceEngine.transform_item(item_data)
+              <div className="bg-white/10 border border-white/20 rounded-xl p-5 text-sm text-white/70">
+                ⏱ Average response time: Within 24 business hours
+              </div>
 
-        if not transformed["is_price_visible"]:
-            raise OrderValidationError(f"Price hidden for item {item_code}")
+            </div>
 
-        unit_price = transformed["price"]
+            {/* RIGHT FORM */}
+            <div className="text-white">
 
-        items_payload.append({
-            "item_code": item_code,
-            "qty": qty,
-            "uom": item.get("uom"),
-            "price_list_rate": unit_price,
-            "rate": unit_price,
-            "amount": qty * unit_price,
-            "warehouse": DEFAULT_WAREHOUSE,
-        })
+              <h2 className="text-3xl font-bold mb-4">
+                Send an Inquiry
+              </h2>
 
-    sales_order_payload = {
-        "doctype": "Sales Order",
-        "customer": customer_id,
-        "transaction_date": _today(),
-        "delivery_date": _today(),
-        "set_warehouse": DEFAULT_WAREHOUSE,
-        "selling_price_list": "Standard Selling",
-        "items": items_payload,
-        "address_display": address.get("full_address"),
-    }
+              <p className="text-white/70 mb-8">
+                Fill the form below and our team will respond shortly.
+              </p>
 
-    try:
-        res = erp_request(
-            method="POST",
-            path="/api/resource/Sales Order",
-            json=sales_order_payload,
-        )
-    except ERPError:
-        raise OrderValidationError("Order service temporarily unavailable.")
+              <form className="space-y-6" onSubmit={handleSubmit}>
 
-    doc = res.get("data") or {}
-    so_id = doc.get("name")
+                <InputWithIcon icon={<UserIcon />}>
+                  <input type="text" name="fullName"
+                    value={formData.fullName}
+                    onChange={handleChange}
+                    placeholder="Full Name"
+                    className="w-full bg-transparent outline-none text-white placeholder-white/50"
+                  />
+                </InputWithIcon>
 
-    return {
-        "status": "submitted",
-        "ecommerce_rfq_id": so_id,
-        "customer_id": customer_id,
-        "created_at": _today(),
-    }
+                <InputWithIcon icon={<MailIcon />}>
+                  <input type="email" name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    placeholder="Email Address"
+                    className="w-full bg-transparent outline-none text-white placeholder-white/50"
+                  />
+                </InputWithIcon>
 
+                <InputWithIcon icon={<TagIcon />}>
+                  <select name="inquiryType"
+                    value={formData.inquiryType}
+                    onChange={handleChange}
+                    className="w-full bg-transparent outline-none text-white"
+                  >
+                    <option value="" className="text-black">Select Inquiry Type</option>
+                    <option value="Product Inquiry" className="text-black">Product Inquiry</option>
+                    <option value="Bulk Order" className="text-black">Bulk Order</option>
+                    <option value="Technical/Payment Issue" className="text-black">Technical / Payment Issue</option>
+                    <option value="General Business Inquiry" className="text-black">General Business Inquiry</option>
+                  </select>
+                </InputWithIcon>
 
-# =================================================
-# ENTRY POINT
-# =================================================
-def create_ecommerce_order(payload: Dict[str, Any]) -> Dict[str, Any]:
+                <div className="border border-white/20 rounded-xl p-4 focus-within:border-[#b11217] transition">
+                  <textarea rows={5} name="message"
+                    value={formData.message}
+                    onChange={handleChange}
+                    placeholder="Your Message"
+                    className="w-full bg-transparent outline-none text-white placeholder-white/50 resize-none"
+                  />
+                </div>
 
-    order_type = SiteControl.get_default_order_type()
+                <button type="submit"
+                  disabled={loading || success}
+                  className={`w-full py-3 rounded-xl font-semibold transition-all duration-300 ${
+                    success ? "bg-green-600"
+                    : "bg-gradient-to-r from-[#b11217] to-[#ff3c3c] hover:scale-[1.02]"
+                  }`}
+                >
+                  {loading ? "Sending..."
+                    : success ? "Inquiry Sent Successfully"
+                    : "Submit Inquiry"}
+                </button>
 
-    if order_type == "E-Commerce RFQ":
-        return create_ecommerce_rfq(payload)
+              </form>
 
-    elif order_type == "Sales Order":
-        return create_sales_order(payload)
+            </div>
 
-    else:
-        raise OrderValidationError("Invalid Default Order Type.")
+          </div>
+        </div>
+      </section>
+
+      <Footer />
+    </>
+  )
+}
+
+/* COMPONENTS */
+
+function ContactItem({ icon, title, content }: any) {
+  return (
+    <div className="flex items-start gap-4 group">
+      <div className="p-3 rounded-xl bg-white/10 group-hover:bg-[#b11217] transition flex-shrink-0">
+        {icon}
+      </div>
+      <div>
+        <p className="font-semibold text-lg">{title}</p>
+        <p className="text-white/70 mt-1 text-sm">{content}</p>
+      </div>
+    </div>
+  )
+}
+
+function InputWithIcon({ icon, children }: any) {
+  return (
+    <div className="flex items-center gap-3 border border-white/20 rounded-xl px-4 py-3 focus-within:border-[#b11217] transition">
+      {icon}
+      {children}
+    </div>
+  )
+}
+
+/* FIXED SVG ICONS */
+
+const baseIcon = "w-5 h-5 flex-shrink-0"
+
+const UserIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    className={baseIcon}>
+    <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
+  </svg>
+)
+
+const MailIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    className={baseIcon}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="M3 7l9 6 9-6" />
+  </svg>
+)
+
+const PhoneIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    className={baseIcon}>
+    <path d="M22 16.92V21a2 2 0 01-2 2A19.86 19.86 0 013 4a2 2 0 012-2h4l2 5-2 1a16 16 0 006 6l1-2 5 2z" />
+  </svg>
+)
+
+const OfficeIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    className={baseIcon}>
+    <rect x="3" y="3" width="18" height="18" />
+    <path d="M9 21V9h6v12" />
+  </svg>
+)
+
+const TagIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    className={baseIcon}>
+    <path d="M20 12l-8-8H4v8l8 8 8-8z" />
+    <circle cx="7" cy="7" r="1.5" />
+  </svg>
+)
