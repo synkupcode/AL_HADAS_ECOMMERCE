@@ -1,6 +1,6 @@
 from app.auth.otp import create_or_get_otp, can_resend
 from app.core.config import settings
-from app.integrations.erp_client import erp_request
+from app.services.email_service import send_email
 
 
 def send_otp(email: str):
@@ -21,20 +21,15 @@ def send_otp(email: str):
 
     html_content = f"""
     <h3>Your Verification Code</h3>
-    <h2>{otp}</h2>
+    <h2 style="font-size:22px;">{otp}</h2>
     <p>Valid for 5 minutes.</p>
     """
 
-    erp_request(
-        method="POST",
-        path="/api/method/frappe.core.doctype.communication.email.make",
-        json={
-            "recipients": email,
-            "subject": "Your OTP Code",
-            "content": html_content,
-            "communication_medium": "Email",
-            "send_email": 1
-        }
+    # Direct SMTP (clean architecture)
+    send_email(
+        to_email=email,
+        subject="Your OTP Code",
+        html_content=html_content
     )
 
     return {"status": "sent"}
