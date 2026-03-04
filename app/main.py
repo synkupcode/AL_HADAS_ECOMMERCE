@@ -17,6 +17,7 @@ from app.api.customers import router as customers_router
 from app.api.contact import router as contact_router
 from app.api.auth import router as auth_router
 from app.api.profile import router as profile_router
+from app.api import order_history
 # -------------------------------------------------
 # Create FastAPI App
 # -------------------------------------------------
@@ -110,6 +111,7 @@ app.include_router(customers_router)
 app.include_router(contact_router)
 app.include_router(auth_router)
 app.include_router(profile_router, prefix="/api")
+app.include_router(order_history.router)
 
 # -------------------------------------------------
 # Health Check
