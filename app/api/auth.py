@@ -36,16 +36,16 @@ def verify_otp_endpoint(payload: OTPVerify, response: Response):
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=False, # change it to True 
-        samesite="lax"
+        secure=True,      # ✅ REQUIRED for Render (HTTPS)
+        samesite="none"   # ✅ REQUIRED for cross-domain cookies
     )
 
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=False, # change it to True
-        samesite="lax"
+        secure=True,      # ✅ REQUIRED
+        samesite="none"   # ✅ REQUIRED
     )
 
     return {"message": "Login successful"}
