@@ -2,6 +2,7 @@ from typing import Dict, Any, List
 
 from app.integrations.erp_client import erp_request, ERPError
 from app.services.customer_service import find_customer_by_email
+from app.core.config import settings
 
 
 def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, Any]:
@@ -28,7 +29,7 @@ def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, A
     orders: List[Dict[str, Any]] = []
 
     # =====================================================
-    # SALES ORDERS
+    # SALES ORDERS (UNCHANGED - DO NOT TOUCH)
     # =====================================================
     try:
         sales_res = erp_request(
@@ -55,15 +56,17 @@ def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, A
         )
 
     # =====================================================
-    # E-COMMERCE RFQs
+    # E-COMMERCE RFQs (FIXED - USE CONFIG CONSTANT)
     # =====================================================
+    rfq_doctype = settings.ECOM_RFQ_DOCTYPE
+
     try:
         rfq_res = erp_request(
             method="GET",
-            path="/api/resource/E-Commerce RFQ",
+            path=f"/api/resource/{rfq_doctype}",
             params={
                 "fields": '["name","creation","grand_total","currency"]',
-                "filters": f'[["E-Commerce RFQ","customer_name","=","{customer_id}"]]',
+                "filters": f'[[ "{rfq_doctype}", "customer_name", "=", "{customer_id}" ]]',
                 "order_by": "creation desc",
             },
         )
