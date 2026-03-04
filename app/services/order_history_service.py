@@ -1,6 +1,5 @@
 from typing import Dict, Any, List
 
-from app.core.config import settings
 from app.integrations.erp_client import erp_request, ERPError
 from app.services.customer_service import find_customer_by_email
 
@@ -12,9 +11,7 @@ def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, A
     - E-Commerce RFQs
     """
 
-    # -----------------------------------------
-    # Find Customer (READ ONLY)
-    # -----------------------------------------
+    # Get or validate customer
     customer = find_customer_by_email(email)
 
     if not customer:
@@ -30,16 +27,16 @@ def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, A
 
     orders: List[Dict[str, Any]] = []
 
-    # =========================================
+    # =====================================================
     # SALES ORDERS
-    # =========================================
+    # =====================================================
     try:
         sales_res = erp_request(
             method="GET",
             path="/api/resource/Sales Order",
             params={
                 "fields": '["name","transaction_date","grand_total","currency"]',
-                "filters": [["customer", "=", customer_id]],
+                "filters": f'[["Sales Order","customer","=","{customer_id}"]]',
                 "order_by": "creation desc",
             },
         )
@@ -57,16 +54,16 @@ def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, A
             }
         )
 
-    # =========================================
+    # =====================================================
     # E-COMMERCE RFQs
-    # =========================================
+    # =====================================================
     try:
         rfq_res = erp_request(
             method="GET",
-            path=f"/api/resource/{settings.ECOM_RFQ_DOCTYPE}",
+            path="/api/resource/E-Commerce RFQ",
             params={
                 "fields": '["name","creation","grand_total","currency"]',
-                "filters": [["customer_name", "=", customer_id]],
+                "filters": f'[["E-Commerce RFQ","customer_name","=","{customer_id}"]]',
                 "order_by": "creation desc",
             },
         )
@@ -84,10 +81,10 @@ def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, A
             }
         )
 
-    # =========================================
+    # =====================================================
     # SORT (Newest First)
-    # =========================================
-    orders.sort(key=lambda x: x["date"] or "", reverse=True)
+    # =====================================================
+    orders.sort(key=lambda x: x["date"], reverse=True)
 
     total = len(orders)
 
