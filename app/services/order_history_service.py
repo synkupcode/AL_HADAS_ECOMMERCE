@@ -1,7 +1,7 @@
 from typing import Dict, Any, List
 
 from app.integrations.erp_client import erp_request, ERPError
-from app.services.customer_service import get_or_create_customer
+from app.services.customer_service import find_customer_by_email
 
 
 def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, Any]:
@@ -12,7 +12,7 @@ def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, A
     """
 
     # Get or validate customer
-    customer = get_or_create_customer({"email": email})
+    customer = find_customer_by_email(email)
 
     if not customer:
         return {
