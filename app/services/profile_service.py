@@ -1,7 +1,14 @@
-from app.services.customer_service import find_customer_by_email, CustomerError
+from app.services.customer_service import (
+    find_customer_by_email,
+    get_or_create_customer,
+    CustomerError,
+)
 from app.integrations.erp_client import erp_request, ERPError
 
 
+# ==========================================
+# GET PROFILE
+# ==========================================
 def get_profile(email: str):
 
     customer = find_customer_by_email(email)
@@ -24,15 +31,25 @@ def get_profile(email: str):
     }
 
 
+# ==========================================
+# UPDATE PROFILE (UPSERT LOGIC)
+# ==========================================
 def update_profile(email: str, payload: dict):
 
-    customer = find_customer_by_email(email)
-
-    if not customer:
-        raise CustomerError("Customer not found.")
+    # 1️⃣ Ensure customer exists (create if not)
+    try:
+        customer = get_or_create_customer({
+            "email": email,
+            "customer_name": payload.get("customer_name"),
+            "phone": payload.get("phone"),
+            "vat_number": payload.get("vat_number"),
+        })
+    except Exception:
+        raise CustomerError("Customer creation failed.")
 
     customer_id = customer["name"]
 
+    # 2️⃣ Prepare update fields (only if provided)
     update_fields = {}
 
     if payload.get("customer_name"):
@@ -44,6 +61,11 @@ def update_profile(email: str, payload: dict):
     if payload.get("vat_number"):
         update_fields["custom_vat_registration_number"] = payload["vat_number"]
 
+    # 3️⃣ If there is nothing to update, return success
+    if not update_fields:
+        return {"status": "updated"}
+
+    # 4️⃣ Update ERP Customer
     try:
         erp_request(
             "PUT",
