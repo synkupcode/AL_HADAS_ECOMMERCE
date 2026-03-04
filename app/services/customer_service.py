@@ -11,7 +11,7 @@ class CustomerError(ValueError):
 
 
 # -------------------------------------------------
-# Find Customer by Phone
+# Find Customer by Phone (Legacy Support)
 # -------------------------------------------------
 def _find_customer_by_phone(phone: str) -> str | None:
     try:
@@ -28,12 +28,15 @@ def _find_customer_by_phone(phone: str) -> str | None:
         raise CustomerError("Customer service temporarily unavailable.")
 
     data = res.get("data") or []
+
     if data:
         return data[0]["name"]
 
     return None
+
+
 # -------------------------------------------------
-# Find Customer by Email (SAFE VERSION)
+# Find Customer by Email (Primary Identity)
 # -------------------------------------------------
 def find_customer_by_email(email: str) -> Dict[str, Any] | None:
     try:
@@ -43,6 +46,7 @@ def find_customer_by_email(email: str) -> Dict[str, Any] | None:
             params={
                 "filters": f'[["custom_email","=","{email}"]]',
                 "fields": '["name","customer_name","custom_phone_number","custom_email","custom_vat_registration_number"]',
+                "limit_page_length": 1,
             },
         )
     except ERPError:
@@ -58,78 +62,59 @@ def find_customer_by_email(email: str) -> Dict[str, Any] | None:
 
     return None
 
+
 # -------------------------------------------------
-# Get or Create Customer
+# Get or Create Customer (SAFE UPSERT)
 # -------------------------------------------------
 def get_or_create_customer(payload: Dict[str, Any]) -> str:
 
-    # =================================================
-    # 🔐 MASTER INTEGRATION SWITCH
-    # =================================================
+    # 🔐 Master Integration Switch
     if not SiteControl.is_website_integration_enabled():
         raise HTTPException(
             status_code=503,
             detail="E-commerce integration is currently disabled."
         )
 
-    # =================================================
-    # 🔐 CUSTOMER SYNC CONTROL
-    # =================================================
+    # 🔐 Customer Sync Control
     if not SiteControl.is_customer_sync_enabled():
         raise CustomerError("Customer creation is disabled.")
 
+    email = payload.get("email")
     phone = payload.get("phone")
-    if not phone:
-        raise CustomerError("Phone is required.")
+
+    if not email and not phone:
+        raise CustomerError("Email or Phone is required.")
 
     # -------------------------------------------------
-    # Check Existing Customer
+    # 1️⃣ Try Find by Email (Primary)
     # -------------------------------------------------
-    existing = _find_customer_by_phone(phone)
+    if email:
+        existing = find_customer_by_email(email)
+        if existing:
+            return existing["name"]
 
-    # =================================================
-    # UPDATE EXISTING CUSTOMER
-    # =================================================
-    if existing:
-        update_fields = {}
+    # -------------------------------------------------
+    # 2️⃣ Fallback: Find by Phone (Backward Compatibility)
+    # -------------------------------------------------
+    if phone:
+        existing_phone = _find_customer_by_phone(phone)
+        if existing_phone:
+            return existing_phone
 
-        if payload.get("customer_name"):
-            update_fields["customer_name"] = payload["customer_name"]
-
-        email_value = payload.get("email")
-        if email_value and str(email_value).strip():
-            update_fields["custom_email"] = str(email_value).strip()
-
-        if payload.get("vat_number"):
-            update_fields["custom_vat_registration_number"] = payload["vat_number"]
-
-        if update_fields:
-            try:
-                erp_request(
-                    "PUT",
-                    f"/api/resource/Customer/{existing}",
-                    json=update_fields,
-                )
-            except ERPError:
-                raise CustomerError("Customer update temporarily unavailable.")
-
-        return existing
-
-    # =================================================
-    # CREATE NEW CUSTOMER
-    # =================================================
-    email_value = payload.get("email")
-    if email_value:
-        email_value = str(email_value).strip()
+    # -------------------------------------------------
+    # 3️⃣ Create New Customer
+    # -------------------------------------------------
+    email_value = str(email).strip() if email else None
+    phone_value = str(phone).strip() if phone else None
 
     customer_payload = {
         "doctype": "Customer",
-        "customer_name": payload.get("customer_name") or phone,
+        "customer_name": payload.get("customer_name") or phone_value or email_value,
         "customer_type": payload.get("customer_type") or "Individual",
         "customer_group": "Individual",
         "territory": "All Territories",
-        "custom_phone_number": phone,
-        "custom_email": email_value if email_value else None,
+        "custom_phone_number": phone_value,
+        "custom_email": email_value,
     }
 
     if payload.get("vat_number"):
