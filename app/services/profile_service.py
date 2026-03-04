@@ -22,7 +22,7 @@ def get_profile(email: str):
     return {
         "exists": True,
         "profile": {
-            customer_id = customer
+            "customer_id": customer["name"],
             "customer_name": customer.get("customer_name"),
             "phone": customer.get("custom_phone_number"),
             "email": customer.get("custom_email"),
@@ -32,13 +32,15 @@ def get_profile(email: str):
 
 
 # ==========================================
-# UPDATE PROFILE (UPSERT LOGIC)
+# UPDATE PROFILE (UPSERT SAFE VERSION)
 # ==========================================
 def update_profile(email: str, payload: dict):
 
-    # 1️⃣ Ensure customer exists (create if not)
+    # 1️⃣ Create OR Get Customer
+    # IMPORTANT:
+    # get_or_create_customer() now returns a STRING (customer_id)
     try:
-        customer = get_or_create_customer({
+        customer_id = get_or_create_customer({
             "email": email,
             "customer_name": payload.get("customer_name"),
             "phone": payload.get("phone"),
@@ -46,8 +48,6 @@ def update_profile(email: str, payload: dict):
         })
     except Exception:
         raise CustomerError("Customer creation failed.")
-
-    customer_id = customer["name"]
 
     # 2️⃣ Prepare update fields (only if provided)
     update_fields = {}
@@ -61,7 +61,7 @@ def update_profile(email: str, payload: dict):
     if payload.get("vat_number"):
         update_fields["custom_vat_registration_number"] = payload["vat_number"]
 
-    # 3️⃣ If there is nothing to update, return success
+    # 3️⃣ If nothing to update, return success
     if not update_fields:
         return {"status": "updated"}
 
