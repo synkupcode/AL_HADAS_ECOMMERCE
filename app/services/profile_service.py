@@ -22,7 +22,7 @@ def get_profile(email: str):
     return {
         "exists": True,
         "profile": {
-            "customer_id": customer["name"],
+            customer_id = customer
             "customer_name": customer.get("customer_name"),
             "phone": customer.get("custom_phone_number"),
             "email": customer.get("custom_email"),
