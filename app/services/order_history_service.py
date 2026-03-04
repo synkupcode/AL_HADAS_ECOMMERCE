@@ -63,7 +63,7 @@ def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, A
             path="/api/resource/E-Commerce RFQ",
             params={
                 "fields": '["name","creation","grand_total","currency"]',
-                "filters": f'[["E-Commerce RFQ","customer_name","=","{customer_id}"]]',
+                "filters": [["customer_name", "=", customer_id]],
                 "order_by": "creation desc",
             },
         )
