@@ -111,7 +111,7 @@ app.include_router(customers_router)
 app.include_router(contact_router)
 app.include_router(auth_router)
 app.include_router(profile_router, prefix="/api")
-app.include_router(order_history.router)
+app.include_router(order_history.router, prefix="/api")
 
 # -------------------------------------------------
 # Health Check
