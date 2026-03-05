@@ -66,7 +66,9 @@ def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, A
             method="GET",
             path="/api/resource/E-Commerce RFQ",
             params={
-                "limit_page_length": 20
+                "filters": f'[[ "{rfq_doctype}", "email_id", "=", "{email}" ]]',
+                "order_by": "creation desc",
+                "limit_page_length": limit,
             },
         )
         
