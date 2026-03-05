@@ -66,7 +66,7 @@ def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, A
             method="GET",
             path=f"/api/resource/{rfq_doctype}",
             params={
-                "fields": '["name","creation","grand_total","currency","email_id"]',
+                "fields": '["name","creation","currency","email_id"]',
                 "filters": f'[[ "{rfq_doctype}", "email_id", "=", "{email}" ]]',
                 "order_by": "creation desc",
             },
