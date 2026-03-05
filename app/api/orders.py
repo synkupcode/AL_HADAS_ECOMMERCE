@@ -88,7 +88,7 @@ def order_detail(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/details/{order_id}")
+@router.get("/orders/details/{order_id}")
 def order_detail(
     order_id: str,
     order_type: str,
