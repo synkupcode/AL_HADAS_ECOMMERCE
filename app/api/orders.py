@@ -92,10 +92,6 @@ def order_detail(
 def order_detail(
     order_id: str,
     order_type: str,
-    x_frontend_token: Optional[str] = Header(
-        default=None, alias="X-Frontend-Token"
-    ),
+    current_user=Depends(get_current_user),
 ):
-    _require_frontend_token(x_frontend_token)
-
     return get_order_detail(order_id, order_type)
