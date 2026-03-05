@@ -64,13 +64,12 @@ def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, A
     try:
         rfq_res = erp_request(
             method="GET",
-            path=f"/api/resource/{rfq_doctype}",
+            path="/api/resource/E-Commerce RFQ",
             params={
-                "fields": '["name","creation","currency","email_id"]',
-                "filters": f'[[ "{rfq_doctype}", "email_id", "=", "{email}" ]]',
-                "order_by": "creation desc",
+                "limit_page_length": 20
             },
         )
+        
     except ERPError:
         rfq_res = {"data": []}
     
