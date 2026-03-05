@@ -56,23 +56,24 @@ def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, A
         )
 
     # =====================================================
-    # E-COMMERCE RFQs (FIXED - USE CONFIG CONSTANT)
+    # E-COMMERCE RFQs (FILTER BY EMAIL - PRIMARY IDENTITY)
     # =====================================================
+    
     rfq_doctype = settings.ECOM_RFQ_DOCTYPE
-
+    
     try:
         rfq_res = erp_request(
             method="GET",
             path=f"/api/resource/{rfq_doctype}",
             params={
-                "fields": '["name","creation","grand_total","currency"]',
-                "filters": f'[[ "{rfq_doctype}", "customer_name", "=", "{customer_id}" ]]',
+                "fields": '["name","creation","grand_total","currency","email_id"]',
+                "filters": f'[[ "{rfq_doctype}", "email_id", "=", "{email}" ]]',
                 "order_by": "creation desc",
             },
         )
     except ERPError:
         rfq_res = {"data": []}
-
+    
     for rfq in rfq_res.get("data", []):
         orders.append(
             {
@@ -83,7 +84,6 @@ def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, A
                 "currency": rfq.get("currency", "AED"),
             }
         )
-
     # =====================================================
     # SORT (Newest First)
     # =====================================================
