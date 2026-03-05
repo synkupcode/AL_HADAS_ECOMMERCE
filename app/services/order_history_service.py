@@ -86,7 +86,7 @@ def get_user_orders(email: str, limit: int = 20, offset: int = 0) -> Dict[str, A
     # =====================================================
     # SORT (Newest First)
     # =====================================================
-    orders.sort(key=lambda x: x["date"], reverse=True)
+    oorders.sort(key=lambda x: x["date"] or "", reverse=True)
 
     total = len(orders)
 
