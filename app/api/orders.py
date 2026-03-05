@@ -1,11 +1,13 @@
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Depends
 from typing import Optional
 
 from app.core.config import settings
 from app.models.order_models import PlaceOrderIn
 from app.services.order_service import create_ecommerce_order
-from app.services.order_tracking import list_orders_by_phone, get_order_detail
+from app.services.order_tracking import list_orders_by_phone
 from app.services.order_detail_service import get_order_detail
+from app.auth.dependencies import get_current_user
+
 
 router = APIRouter(prefix="", tags=["orders"])
 
@@ -14,7 +16,6 @@ router = APIRouter(prefix="", tags=["orders"])
 # Frontend Token Protection (MVP Layer)
 # -------------------------------------------------
 def _require_frontend_token(x_frontend_token: Optional[str]) -> None:
-    # If token is not configured, skip check (MVP mode)
     if not settings.FRONTEND_SECRET_TOKEN:
         return
 
@@ -71,23 +72,8 @@ def my_orders(
 
 
 # -------------------------------------------------
-# Order Detail
+# Order Detail (JWT Protected - CLEAN VERSION)
 # -------------------------------------------------
-@router.get("/orders/{rfq_id}")
-def order_detail(
-    rfq_id: str,
-    x_frontend_token: Optional[str] = Header(
-        default=None, alias="X-Frontend-Token"
-    ),
-):
-    _require_frontend_token(x_frontend_token)
-
-    try:
-        return get_order_detail(rfq_id)
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 @router.get("/orders/details/{order_id}")
 def order_detail(
     order_id: str,
