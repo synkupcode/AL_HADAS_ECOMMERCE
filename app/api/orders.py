@@ -5,6 +5,7 @@ from app.core.config import settings
 from app.models.order_models import PlaceOrderIn
 from app.services.order_service import create_ecommerce_order
 from app.services.order_tracking import list_orders_by_phone, get_order_detail
+from app.services.order_detail_service import get_order_detail
 
 router = APIRouter(prefix="", tags=["orders"])
 
@@ -86,3 +87,15 @@ def order_detail(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/details/{order_id}")
+def order_detail(
+    order_id: str,
+    order_type: str,
+    x_frontend_token: Optional[str] = Header(
+        default=None, alias="X-Frontend-Token"
+    ),
+):
+    _require_frontend_token(x_frontend_token)
+
+    return get_order_detail(order_id, order_type)
