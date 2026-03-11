@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from app.core.site_control import SiteControl
 from app.integrations.erp_client import erp_request
 from app.services.ecommerce.ecommerce_engine import EcommerceEngine
+from app.services.ecommerce.stock_service import StockService
 
 
 DEFAULT_PAGE_SIZE = 100
@@ -37,7 +38,7 @@ def get_products(
 ) -> Dict[str, Any]:
 
     # -------------------------------------------------
-    # 🔐 MASTER INTEGRATION SWITCH
+    # MASTER INTEGRATION SWITCH
     # -------------------------------------------------
     if not SiteControl.is_website_integration_enabled():
         raise HTTPException(
@@ -46,7 +47,7 @@ def get_products(
         )
 
     # -------------------------------------------------
-    # 🔐 GLOBAL CATALOG SWITCH
+    # GLOBAL CATALOG SWITCH
     # -------------------------------------------------
     if not SiteControl.is_item_sync_enabled():
         return {
@@ -148,6 +149,9 @@ def get_products(
 
     items = response.get("data", []) or []
 
+    # -------------------------------------------------
+    # SEARCH FILTER
+    # -------------------------------------------------
     if search:
         search_lower = search.lower()
         items = [
@@ -157,6 +161,17 @@ def get_products(
         ]
 
     # -------------------------------------------------
+    # BULK STOCK FETCH (after search filtering)
+    # -------------------------------------------------
+    item_codes = [
+        item.get("item_code")
+        for item in items
+        if item.get("item_code")
+    ]
+
+    stock_map = StockService.fetch_stock_map(item_codes)
+
+    # -------------------------------------------------
     # TRANSFORM
     # -------------------------------------------------
     formatted_items = []
@@ -164,11 +179,12 @@ def get_products(
     for item in items:
 
         ecommerce_data = EcommerceEngine.transform_item(item)
+        stock_data = StockService.resolve_stock_status(item, stock_map)
 
-        # 🔐 ONLY CONTROL DISPLAY — DO NOT OVERRIDE ENGINE VALUES
+        # Global price visibility
         is_price_visible_global = SiteControl.is_price_visibility_enabled()
 
-        formatted_items.append({
+        product = {
             "item_code": item.get("item_code") or "",
             "item_name": item.get("item_name") or "",
             "description": item.get("description") or "",
@@ -181,10 +197,16 @@ def get_products(
             ),
             "category": item.get("item_group") or "Uncategorized",
             "subcategory": item.get("custom_subcategory") or "Other",
-            "stock_status": ecommerce_data["stock_status"],
+            "stock_status": stock_data["stock_status"],
             "is_price_visible": ecommerce_data["is_price_visible"],
             "is_image_visible": ecommerce_data["is_image_visible"],
-        })
+        }
+
+        # Only include quantity if enabled
+        if "available_qty" in stock_data:
+            product["available_qty"] = stock_data["available_qty"]
+
+        formatted_items.append(product)
 
     # -------------------------------------------------
     # FINAL RESPONSE
