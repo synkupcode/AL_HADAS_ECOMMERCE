@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.integrations.erp_client import erp_request, ERPError
 from app.services.customer_service import get_or_create_customer
 from app.services.ecommerce.ecommerce_engine import EcommerceEngine
-from app.services.ecommerce.stock_service import StockService
+from app.services.stock_service import StockService
 
 
 class OrderValidationError(ValueError):
