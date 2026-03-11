@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.integrations.erp_client import erp_request, ERPError
 from app.services.customer_service import get_or_create_customer
 from app.services.ecommerce.ecommerce_engine import EcommerceEngine
+from app.services.ecommerce.stock_service import StockService
 
 
 class OrderValidationError(ValueError):
@@ -41,6 +42,7 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
         "custom_promotional_price",
         "custom_promotional_rate",
         "custom_show_price",
+        "custom_show_stock",
     ]
 
     try:
@@ -60,7 +62,7 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 
 
 # =================================================
-# RFQ
+# RFQ CREATION
 # =================================================
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
@@ -83,10 +85,17 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not cart:
         raise OrderValidationError("Cart cannot be empty")
 
+    # ---------------------------------------------
+    # STOCK VALIDATION
+    # ---------------------------------------------
+    StockService.validate_cart_stock(cart)
+
     customer_id = get_or_create_customer(payload)
+
     items_payload = []
 
     for item in cart:
+
         item_code = item.get("item_code")
         qty = float(item.get("qty", 0))
 
@@ -110,12 +119,18 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             "amount": qty * unit_price,
         })
 
-    # ===============================
-    # ADDRESS VALIDATION (MANDATORY)
-    # ===============================
+    # ---------------------------------------------
+    # ADDRESS VALIDATION
+    # ---------------------------------------------
     address = payload.get("address", {})
 
-    required_fields = ["building_no", "postal_code", "city", "full_address"]
+    required_fields = [
+        "building_no",
+        "postal_code",
+        "city",
+        "full_address"
+    ]
+
     for field in required_fields:
         if not address.get(field):
             raise OrderValidationError(f"{field} is required")
@@ -133,8 +148,11 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
         "item_table": items_payload,
     }
 
-    # Remove empty values safely
-    rfq_payload = {k: v for k, v in rfq_payload.items() if v not in (None, "", [])}
+    # Remove empty values
+    rfq_payload = {
+        k: v for k, v in rfq_payload.items()
+        if v not in (None, "", [])
+    }
 
     try:
         res = erp_request(
@@ -157,7 +175,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # =================================================
-# SALES ORDER
+# SALES ORDER CREATION
 # =================================================
 def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
@@ -177,16 +195,24 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not cart:
         raise OrderValidationError("Cart cannot be empty")
 
+    # ---------------------------------------------
+    # STOCK VALIDATION
+    # ---------------------------------------------
+    StockService.validate_cart_stock(cart)
+
     customer_id = get_or_create_customer(payload)
+
     address = payload.get("address", {})
 
     DEFAULT_WAREHOUSE = SiteControl.get_default_source_warehouse()
+
     if not DEFAULT_WAREHOUSE:
         raise OrderValidationError("Default warehouse not configured.")
 
     items_payload = []
 
     for item in cart:
+
         item_code = item.get("item_code")
         qty = float(item.get("qty", 0))
 
@@ -236,14 +262,14 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "status": "submitted",
-        "ecommerce_rfq_id": so_id,  # unified response key
+        "ecommerce_rfq_id": so_id,
         "customer_id": customer_id,
         "created_at": _today(),
     }
 
 
 # =================================================
-# ENTRY POINT
+# ORDER ENTRY POINT
 # =================================================
 def create_ecommerce_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
