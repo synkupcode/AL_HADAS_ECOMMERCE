@@ -73,14 +73,15 @@ class StockService:
         stock_map = {}
 
         for b in bins:
+            item_code = b.get("item_code")
             try:
                 actual = float(b.get("actual_qty") or 0)
                 reserved = float(b.get("reserved_qty") or 0)
                 available = max(actual - reserved, 0)
-                stock_map[b["item_code"]] = available
             except Exception:
-                # fallback to 0 if ERP data is invalid
-                stock_map[b.get("item_code")] = 0
+                available = 0
+            if item_code:
+                stock_map[item_code] = available
 
         return stock_map
 
@@ -90,17 +91,16 @@ class StockService:
     @classmethod
     def resolve_stock_status(cls, item, stock_map):
         item_code = item.get("item_code")
+        show_stock_item = int(item.get("custom_show_stock") or 0)
+        show_quantity_global = SiteControl.is_available_qty_enabled()
+        minus_stock_allowed = SiteControl.is_minus_stock_selling_enabled()
 
-        # safely get available stock
+        # Get available stock safely
         try:
             available = float(stock_map.get(item_code, 0)) - cls._get_reserved_qty(item_code)
         except Exception:
             available = 0
         available = max(available, 0)
-
-        show_stock_item = int(item.get("custom_show_stock") or 1)
-        show_quantity_global = SiteControl.is_available_qty_enabled()
-        minus_stock_allowed = SiteControl.is_minus_stock_selling_enabled()
 
         # Determine stock_status
         if not show_stock_item:
@@ -112,7 +112,7 @@ class StockService:
 
         result = {"stock_status": stock_status}
 
-        # Include available_qty only if item and global flags allow and stock > 0
+        # Include available_qty only if allowed and stock > 0
         if show_stock_item and show_quantity_global and available > 0:
             result["available_qty"] = int(available)
 
@@ -131,7 +131,7 @@ class StockService:
             item_code = item.get("item_code")
             qty = float(item.get("qty") or 0)
             try:
-                available = stock_map.get(item_code, 0) - cls._get_reserved_qty(item_code)
+                available = float(stock_map.get(item_code, 0)) - cls._get_reserved_qty(item_code)
             except Exception:
                 available = 0
 
