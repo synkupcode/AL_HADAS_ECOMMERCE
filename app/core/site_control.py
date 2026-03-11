@@ -91,8 +91,8 @@ class SiteControl:
     def get_default_source_warehouse(cls) -> str:
         settings = cls._get_settings()
         return settings.get("default_source_warehouse")
-        
-   # -----------------------------
+
+    # -----------------------------
     # Inventory Controls
     # -----------------------------
     @classmethod
