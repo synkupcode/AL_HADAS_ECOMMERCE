@@ -66,112 +66,126 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 # =================================================
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
-    # 🔐 MASTER SWITCH
     if not SiteControl.is_website_integration_enabled():
         raise HTTPException(
             status_code=503,
             detail="E-commerce integration is currently disabled."
         )
 
-    # 🔐 CUSTOMER CONTROL
     if not SiteControl.is_customer_sync_enabled():
         raise OrderValidationError("Customer service is disabled.")
 
-    # 🔐 MAINTENANCE CHECK
     if SiteControl.is_site_frozen():
         raise OrderValidationError("Store is currently under maintenance.")
 
     cart: List[Dict[str, Any]] = payload.get("cart", [])
+
     if not cart:
         raise OrderValidationError("Cart cannot be empty")
 
-    # ---------------------------------------------
+    # -------------------------
     # STOCK VALIDATION
-    # ---------------------------------------------
+    # -------------------------
     StockService.validate_cart_stock(cart)
 
-    customer_id = get_or_create_customer(payload)
-
-    items_payload = []
-
-    for item in cart:
-
-        item_code = item.get("item_code")
-        qty = float(item.get("qty", 0))
-
-        if qty <= 0:
-            raise OrderValidationError("Quantity must be greater than zero")
-
-        item_data = _fetch_item_from_erp(item_code)
-        transformed = EcommerceEngine.transform_item(item_data)
-
-        if not transformed["is_price_visible"]:
-            raise OrderValidationError(f"Price hidden for item {item_code}")
-
-        unit_price = transformed["price"]
-
-        items_payload.append({
-            "item_code": item_code,
-            "item_name": item.get("item_name"),
-            "quantity": qty,
-            "unit_pricex": unit_price,
-            "uom": item.get("uom"),
-            "amount": qty * unit_price,
-        })
-
-    # ---------------------------------------------
-    # ADDRESS VALIDATION
-    # ---------------------------------------------
-    address = payload.get("address", {})
-
-    required_fields = [
-        "building_no",
-        "postal_code",
-        "city",
-        "full_address"
-    ]
-
-    for field in required_fields:
-        if not address.get(field):
-            raise OrderValidationError(f"{field} is required")
-
-    rfq_payload = {
-        "doctype": settings.ECOM_RFQ_DOCTYPE,
-        "customer_name": customer_id,
-        "building_no": address.get("building_no"),
-        "postal_code": address.get("postal_code"),
-        "city": address.get("city"),
-        "street_name": address.get("street_name"),
-        "district": address.get("district"),
-        "country": address.get("country"),
-        "full_address": address.get("full_address"),
-        "item_table": items_payload,
-    }
-
-    # Remove empty values
-    rfq_payload = {
-        k: v for k, v in rfq_payload.items()
-        if v not in (None, "", [])
-    }
+    # -------------------------
+    # RESERVE STOCK
+    # -------------------------
+    StockService.reserve_stock(cart)
 
     try:
-        res = erp_request(
-            method="POST",
-            path=f"/api/resource/{settings.ECOM_RFQ_DOCTYPE}",
-            json=rfq_payload,
-        )
-    except ERPError:
-        raise OrderValidationError("Order service temporarily unavailable.")
 
-    doc = res.get("data") or {}
-    rfq_id = doc.get("name")
+        customer_id = get_or_create_customer(payload)
 
-    return {
-        "status": "submitted",
-        "ecommerce_rfq_id": rfq_id,
-        "customer_id": customer_id,
-        "created_at": _today(),
-    }
+        items_payload = []
+
+        for item in cart:
+
+            item_code = item.get("item_code")
+            qty = float(item.get("qty", 0))
+
+            if qty <= 0:
+                raise OrderValidationError("Quantity must be greater than zero")
+
+            item_data = _fetch_item_from_erp(item_code)
+
+            transformed = EcommerceEngine.transform_item(item_data)
+
+            if not transformed["is_price_visible"]:
+                raise OrderValidationError(
+                    f"Price hidden for item {item_code}"
+                )
+
+            unit_price = transformed["price"]
+
+            items_payload.append({
+                "item_code": item_code,
+                "item_name": item.get("item_name"),
+                "quantity": qty,
+                "unit_pricex": unit_price,
+                "uom": item.get("uom"),
+                "amount": qty * unit_price,
+            })
+
+        # -------------------------
+        # ADDRESS VALIDATION
+        # -------------------------
+        address = payload.get("address", {})
+
+        required_fields = [
+            "building_no",
+            "postal_code",
+            "city",
+            "full_address",
+        ]
+
+        for field in required_fields:
+            if not address.get(field):
+                raise OrderValidationError(f"{field} is required")
+
+        rfq_payload = {
+            "doctype": settings.ECOM_RFQ_DOCTYPE,
+            "customer_name": customer_id,
+            "building_no": address.get("building_no"),
+            "postal_code": address.get("postal_code"),
+            "city": address.get("city"),
+            "street_name": address.get("street_name"),
+            "district": address.get("district"),
+            "country": address.get("country"),
+            "full_address": address.get("full_address"),
+            "item_table": items_payload,
+        }
+
+        rfq_payload = {
+            k: v for k, v in rfq_payload.items()
+            if v not in (None, "", [])
+        }
+
+        try:
+            res = erp_request(
+                method="POST",
+                path=f"/api/resource/{settings.ECOM_RFQ_DOCTYPE}",
+                json=rfq_payload,
+            )
+        except ERPError:
+            raise OrderValidationError(
+                "Order service temporarily unavailable."
+            )
+
+        doc = res.get("data") or {}
+        rfq_id = doc.get("name")
+
+        return {
+            "status": "submitted",
+            "ecommerce_rfq_id": rfq_id,
+            "customer_id": customer_id,
+            "created_at": _today(),
+        }
+
+    finally:
+
+        # ALWAYS release reservation
+        StockService.release_reservation(cart)
 
 
 # =================================================
@@ -192,84 +206,102 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise OrderValidationError("Store is currently under maintenance.")
 
     cart: List[Dict[str, Any]] = payload.get("cart", [])
+
     if not cart:
         raise OrderValidationError("Cart cannot be empty")
 
-    # ---------------------------------------------
+    # -------------------------
     # STOCK VALIDATION
-    # ---------------------------------------------
+    # -------------------------
     StockService.validate_cart_stock(cart)
 
-    customer_id = get_or_create_customer(payload)
-
-    address = payload.get("address", {})
-
-    DEFAULT_WAREHOUSE = SiteControl.get_default_source_warehouse()
-
-    if not DEFAULT_WAREHOUSE:
-        raise OrderValidationError("Default warehouse not configured.")
-
-    items_payload = []
-
-    for item in cart:
-
-        item_code = item.get("item_code")
-        qty = float(item.get("qty", 0))
-
-        if qty <= 0:
-            raise OrderValidationError("Quantity must be greater than zero")
-
-        item_data = _fetch_item_from_erp(item_code)
-        transformed = EcommerceEngine.transform_item(item_data)
-
-        if not transformed["is_price_visible"]:
-            raise OrderValidationError(f"Price hidden for item {item_code}")
-
-        unit_price = transformed["price"]
-
-        items_payload.append({
-            "item_code": item_code,
-            "qty": qty,
-            "uom": item.get("uom"),
-            "price_list_rate": unit_price,
-            "rate": unit_price,
-            "amount": qty * unit_price,
-            "warehouse": DEFAULT_WAREHOUSE,
-        })
-
-    sales_order_payload = {
-        "doctype": "Sales Order",
-        "customer": customer_id,
-        "transaction_date": _today(),
-        "delivery_date": _today(),
-        "set_warehouse": DEFAULT_WAREHOUSE,
-        "selling_price_list": "Standard Selling",
-        "items": items_payload,
-        "address_display": address.get("full_address"),
-    }
+    # -------------------------
+    # RESERVE STOCK
+    # -------------------------
+    StockService.reserve_stock(cart)
 
     try:
-        res = erp_request(
-            method="POST",
-            path="/api/resource/Sales Order",
-            json=sales_order_payload,
-        )
-    except ERPError:
-        raise OrderValidationError("Order service temporarily unavailable.")
 
-    doc = res.get("data") or {}
-    so_id = doc.get("name")
+        customer_id = get_or_create_customer(payload)
 
-    return {
-        "status": "submitted",
-        "ecommerce_rfq_id": so_id,
-        "customer_id": customer_id,
-        "created_at": _today(),
-    }
+        address = payload.get("address", {})
+
+        DEFAULT_WAREHOUSE = SiteControl.get_default_source_warehouse()
+
+        if not DEFAULT_WAREHOUSE:
+            raise OrderValidationError("Default warehouse not configured.")
+
+        items_payload = []
+
+        for item in cart:
+
+            item_code = item.get("item_code")
+            qty = float(item.get("qty", 0))
+
+            if qty <= 0:
+                raise OrderValidationError("Quantity must be greater than zero")
+
+            item_data = _fetch_item_from_erp(item_code)
+
+            transformed = EcommerceEngine.transform_item(item_data)
+
+            if not transformed["is_price_visible"]:
+                raise OrderValidationError(
+                    f"Price hidden for item {item_code}"
+                )
+
+            unit_price = transformed["price"]
+
+            items_payload.append({
+                "item_code": item_code,
+                "qty": qty,
+                "uom": item.get("uom"),
+                "price_list_rate": unit_price,
+                "rate": unit_price,
+                "amount": qty * unit_price,
+                "warehouse": DEFAULT_WAREHOUSE,
+            })
+
+        sales_order_payload = {
+            "doctype": "Sales Order",
+            "customer": customer_id,
+            "transaction_date": _today(),
+            "delivery_date": _today(),
+            "set_warehouse": DEFAULT_WAREHOUSE,
+            "selling_price_list": "Standard Selling",
+            "items": items_payload,
+            "address_display": address.get("full_address"),
+        }
+
+        try:
+            res = erp_request(
+                method="POST",
+                path="/api/resource/Sales Order",
+                json=sales_order_payload,
+            )
+        except ERPError:
+            raise OrderValidationError(
+                "Order service temporarily unavailable."
+            )
+
+        doc = res.get("data") or {}
+        so_id = doc.get("name")
+
+        return {
+            "status": "submitted",
+            "ecommerce_rfq_id": so_id,
+            "customer_id": customer_id,
+            "created_at": _today(),
+        }
+
+    finally:
+
+        # ALWAYS release reservation
+        StockService.release_reservation(cart)
 
 
 # =================================================
-# ORDER ENTRY POINT
+# ENTRY POINT
 # =================================================
 def create_ecommerce_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 
