@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from app.core.site_control import SiteControl
 from app.integrations.erp_client import erp_request
 from app.services.ecommerce.ecommerce_engine import EcommerceEngine
-from app.services.ecommerce.stock_service import StockService
+from app.services.stock_service import StockService
 
 
 DEFAULT_PAGE_SIZE = 100
