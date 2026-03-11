@@ -27,7 +27,6 @@ class StockService:
                 (qty, ts) for qty, ts in cls.RESERVED_STOCK[item_code]
                 if now - ts < timeout
             ]
-
             if valid_entries:
                 cls.RESERVED_STOCK[item_code] = valid_entries
             else:
@@ -83,14 +82,23 @@ class StockService:
         return stock_map
 
     # -----------------------------------
-    # RESOLVE STOCK STATUS (aligned with EcommerceEngine)
+    # RESOLVE STOCK STATUS (with both controls)
     # -----------------------------------
     @classmethod
     def resolve_stock_status(cls, item: Dict, stock_map: Dict[str, float]) -> Dict:
+        """
+        Returns:
+        {
+            "stock_status": "In Stock" | "Out of Stock" | "Backorder",
+            "available_qty": int (only if show_quantity enabled)
+        }
+        """
         try:
             show_stock = int(item.get("custom_show_stock") or 0)
+            show_quantity = int(item.get("custom_show_stock_quantity") or 0)
         except (ValueError, TypeError):
             show_stock = 0
+            show_quantity = 0
 
         item_code = item.get("item_code") or "unknown"
         available = float(stock_map.get(item_code, 0))
@@ -108,6 +116,8 @@ class StockService:
                     result["stock_status"] = "Out of Stock"
             else:
                 result["stock_status"] = "In Stock"
+            # Show quantity only if both show_stock + show_quantity are enabled
+            if show_quantity == 1 and available > 0:
                 if SiteControl.is_available_qty_enabled():
                     result["available_qty"] = int(available)
 
