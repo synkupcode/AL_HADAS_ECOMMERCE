@@ -96,3 +96,40 @@ class StockService:
             result["available_qty"] = available
 
         return result
+
+    # -----------------------------------
+    # Validate cart stock before checkout
+    # -----------------------------------
+    @classmethod
+    def validate_cart_stock(cls, cart_items: List[dict]) -> None:
+
+        if not cart_items:
+            return
+
+        item_codes = [
+            item.get("item_code")
+            for item in cart_items
+            if item.get("item_code")
+        ]
+
+        stock_map = cls.fetch_stock_map(item_codes)
+
+        minus_stock_allowed = SiteControl.is_minus_stock_selling_enabled()
+
+        for item in cart_items:
+
+            item_code = item.get("item_code")
+            qty = float(item.get("qty") or item.get("quantity") or 0)
+
+            available = stock_map.get(item_code, 0)
+
+            if available >= qty:
+                continue
+
+            if minus_stock_allowed:
+                continue
+
+            raise ValueError(
+                f"Insufficient stock for item {item_code}. "
+                f"Available: {available}, Requested: {qty}"
+            )
