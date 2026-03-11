@@ -91,3 +91,16 @@ class SiteControl:
     def get_default_source_warehouse(cls) -> str:
         settings = cls._get_settings()
         return settings.get("default_source_warehouse")
+        
+   # -----------------------------
+    # Inventory Controls
+    # -----------------------------
+    @classmethod
+    def is_minus_stock_selling_enabled(cls) -> bool:
+        settings = cls._get_settings()
+        return cls._to_bool(settings.get("enable_minus_stock_selling"))
+
+    @classmethod
+    def is_available_quantity_visible(cls) -> bool:
+        settings = cls._get_settings()
+        return cls._to_bool(settings.get("show_available_quantity"))
