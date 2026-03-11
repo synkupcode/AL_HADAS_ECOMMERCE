@@ -5,6 +5,10 @@ from app.integrations.erp_client import erp_request
 
 
 class StockService:
+    """
+    Handles inventory lookups and stock status resolution.
+    ERPNext remains the source of truth.
+    """
 
     # -----------------------------------
     # Calculate available quantity
@@ -16,7 +20,7 @@ class StockService:
         return actual - reserved
 
     # -----------------------------------
-    # Fetch stock from ERP (Bulk)
+    # Bulk stock fetch
     # -----------------------------------
     @classmethod
     def fetch_stock_map(cls, item_codes: List[str]) -> Dict[str, float]:
@@ -40,8 +44,8 @@ class StockService:
         }
 
         response = erp_request(
-            "GET",
-            "/api/resource/Bin",
+            method="GET",
+            path="/api/resource/Bin",
             params=params,
         )
 
@@ -67,7 +71,7 @@ class StockService:
 
         item_code = item.get("item_code")
 
-        # Item level control
+        # Item level override
         if str(item.get("custom_show_stock")) != "1":
             return {
                 "stock_status": "Out of Stock",
@@ -78,7 +82,6 @@ class StockService:
 
         if available > 0:
             status = "In Stock"
-
         else:
             if SiteControl.is_minus_stock_selling_enabled():
                 status = "Backorder"
