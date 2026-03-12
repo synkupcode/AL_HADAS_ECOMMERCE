@@ -2,6 +2,7 @@
 
 import time
 from typing import Any, Dict
+
 from app.integrations.erp_client import erp_request
 
 
@@ -23,13 +24,12 @@ class SiteControl:
     @staticmethod
     def _to_bool(value: Any) -> bool:
         """
-        Converts various ERPNext values to boolean.
-        Accepts: 'Yes', 'No', '1', '0', 'True', 'False' (case-insensitive)
+        Convert ERP setting value to boolean.
+        Handles "Yes"/"No" explicitly.
         """
-        if value is None:
-            return False
-        value_str = str(value).strip().lower()
-        return value_str in ["1", "true", "yes"]
+        if isinstance(value, str):
+            return value.strip().lower() == "yes"
+        return bool(value)
 
     # -----------------------------
     # Core Settings Fetch (Cached)
@@ -113,12 +113,13 @@ class SiteControl:
         return cls._to_bool(settings.get("show_available_quantity"))
 
     # -----------------------------
-    # SO Auto Submission
+    # NEW: SO Auto Submission
     # -----------------------------
     @classmethod
     def is_so_auto_submission_enabled(cls) -> bool:
         """
         Returns True if 'SO Auto Submission' is enabled in E-Commerce Settings.
+        Reads "Yes"/"No" directly.
         """
         settings = cls._get_settings()
         return cls._to_bool(settings.get("so_auto_submission"))
