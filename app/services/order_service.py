@@ -235,13 +235,13 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         if so_id and SiteControl.is_so_auto_submission_enabled():
             try:
                 erp_request(
-                    method="POST",
-                    path="/api/method/frappe.client.submit",
-                    json={"doctype": "Sales Order", "name": so_id},
+                    method="PUT",
+                    path=f"/api/resource/Sales Order/{so_id}",
+                    json={"submit": 1},
                 )
-            except ERPError:
-                # Do not fail checkout
-                pass
+            except ERPError as e:
+                # Log the failure but do not break checkout
+                print(f"Auto-submit failed for SO {so_id}: {str(e)}")
 
         return {
             "status": "submitted",
