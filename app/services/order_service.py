@@ -83,14 +83,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not cart:
         raise OrderValidationError("Cart cannot be empty")
 
-    # -------------------------
-    # STOCK VALIDATION
-    # -------------------------
     StockService.validate_cart_stock(cart)
-
-    # -------------------------
-    # RESERVE STOCK
-    # -------------------------
     StockService.reserve_stock(cart)
 
     try:
@@ -127,9 +120,6 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "amount": qty * unit_price,
             })
 
-        # -------------------------
-        # ADDRESS VALIDATION
-        # -------------------------
         address = payload.get("address", {})
 
         required_fields = [
@@ -183,8 +173,6 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     finally:
-
-        # ALWAYS release reservation
         StockService.release_reservation(cart)
 
 
@@ -210,14 +198,7 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not cart:
         raise OrderValidationError("Cart cannot be empty")
 
-    # -------------------------
-    # STOCK VALIDATION
-    # -------------------------
     StockService.validate_cart_stock(cart)
-
-    # -------------------------
-    # RESERVE STOCK
-    # -------------------------
     StockService.reserve_stock(cart)
 
     try:
@@ -287,6 +268,23 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         doc = res.get("data") or {}
         so_id = doc.get("name")
 
+        # -------------------------------------------------
+        # OPTIONAL AUTO SUBMIT (Controlled by SiteControl)
+        # -------------------------------------------------
+        if so_id and SiteControl.is_so_auto_submission_enabled():
+            try:
+                erp_request(
+                    method="POST",
+                    path="/api/method/frappe.client.submit",
+                    json={
+                        "doctype": "Sales Order",
+                        "name": so_id
+                    },
+                )
+            except ERPError:
+                # Do not fail checkout if submission fails
+                pass
+
         return {
             "status": "submitted",
             "ecommerce_rfq_id": so_id,
@@ -295,8 +293,6 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     finally:
-
-        # ALWAYS release reservation
         StockService.release_reservation(cart)
 
 
