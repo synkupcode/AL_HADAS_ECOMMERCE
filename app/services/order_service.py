@@ -14,17 +14,17 @@ from app.services.stock_service import StockService
 
 
 class OrderValidationError(ValueError):
+    """Custom exception for order validation failures."""
     pass
 
 
-def _today():
+def _today() -> str:
+    """Return current UTC date in ISO format."""
     return datetime.now(timezone.utc).date().isoformat()
 
 
-# =================================================
-# FETCH ITEM FROM ERP (USED FOR PRICING)
-# =================================================
 def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
+    """Fetch item details from ERPNext with required fields for pricing."""
     fields = [
         "item_code",
         "item_name",
@@ -50,7 +50,7 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
         res = erp_request(
             method="GET",
             path=f"/api/resource/Item/{item_code}",
-            params={"fields": str(fields).replace("'", '"')},
+            params={"fields": str(fields).replace("'", '"')}
         )
     except ERPError:
         raise OrderValidationError("Item service temporarily unavailable.")
@@ -58,24 +58,59 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
     item = res.get("data")
     if not item:
         raise OrderValidationError(f"Item not found: {item_code}")
-
     return item
 
 
-# =================================================
-# RFQ CREATION
-# =================================================
-def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
-    if not SiteControl.is_website_integration_enabled():
-        raise HTTPException(status_code=503, detail="E-commerce integration is currently disabled.")
+def _validate_address(address: Dict[str, Any]) -> None:
+    """Ensure required address fields are present."""
+    required_fields = ["building_no", "postal_code", "city", "full_address"]
+    for field in required_fields:
+        if not address.get(field):
+            raise OrderValidationError(f"{field} is required")
 
+
+def _prepare_items_payload(cart: List[Dict[str, Any]], warehouse: str = None) -> List[Dict[str, Any]]:
+    """Transform cart items for ERPNext payload."""
+    items_payload = []
+
+    for item in cart:
+        item_code = item.get("item_code")
+        qty = float(item.get("qty", 0))
+        if qty <= 0:
+            raise OrderValidationError("Quantity must be greater than zero")
+
+        item_data = _fetch_item_from_erp(item_code)
+        transformed = EcommerceEngine.transform_item(item_data)
+        if not transformed["is_price_visible"]:
+            raise OrderValidationError(f"Price hidden for item {item_code}")
+
+        item_payload = {
+            "item_code": item_code,
+            "qty": qty,
+            "uom": item.get("uom"),
+            "rate": transformed["price"],
+        }
+        if warehouse:
+            item_payload["warehouse"] = warehouse
+
+        items_payload.append(item_payload)
+
+    return items_payload
+
+
+def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Create an E-Commerce RFQ in ERPNext.
+    Reserves stock during processing and releases it finally.
+    """
+    if not SiteControl.is_website_integration_enabled():
+        raise HTTPException(status_code=503, detail="E-commerce integration is disabled.")
     if not SiteControl.is_customer_sync_enabled():
         raise OrderValidationError("Customer service is disabled.")
-
     if SiteControl.is_site_frozen():
-        raise OrderValidationError("Store is currently under maintenance.")
+        raise OrderValidationError("Store is under maintenance.")
 
-    cart: List[Dict[str, Any]] = payload.get("cart", [])
+    cart = payload.get("cart", [])
     if not cart:
         raise OrderValidationError("Cart cannot be empty")
 
@@ -84,36 +119,9 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         customer_id = get_or_create_customer(payload)
-        items_payload = []
-
-        for item in cart:
-            item_code = item.get("item_code")
-            qty = float(item.get("qty", 0))
-            if qty <= 0:
-                raise OrderValidationError("Quantity must be greater than zero")
-
-            item_data = _fetch_item_from_erp(item_code)
-            transformed = EcommerceEngine.transform_item(item_data)
-
-            if not transformed["is_price_visible"]:
-                raise OrderValidationError(f"Price hidden for item {item_code}")
-
-            unit_price = transformed["price"]
-
-            items_payload.append({
-                "item_code": item_code,
-                "item_name": item.get("item_name"),
-                "quantity": qty,
-                "unit_pricex": unit_price,
-                "uom": item.get("uom"),
-                "amount": qty * unit_price,
-            })
-
+        items_payload = _prepare_items_payload(cart)
         address = payload.get("address", {})
-        required_fields = ["building_no", "postal_code", "city", "full_address"]
-        for field in required_fields:
-            if not address.get(field):
-                raise OrderValidationError(f"{field} is required")
+        _validate_address(address)
 
         rfq_payload = {
             "doctype": settings.ECOM_RFQ_DOCTYPE,
@@ -127,15 +135,10 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             "full_address": address.get("full_address"),
             "item_table": items_payload,
         }
-
         rfq_payload = {k: v for k, v in rfq_payload.items() if v not in (None, "", [])}
 
         try:
-            res = erp_request(
-                method="POST",
-                path=f"/api/resource/{settings.ECOM_RFQ_DOCTYPE}",
-                json=rfq_payload,
-            )
+            res = erp_request(method="POST", path=f"/api/resource/{settings.ECOM_RFQ_DOCTYPE}", json=rfq_payload)
         except ERPError:
             raise OrderValidationError("Order service temporarily unavailable.")
 
@@ -153,20 +156,19 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
         StockService.release_reservation(cart)
 
 
-# =================================================
-# SALES ORDER CREATION
-# =================================================
 def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Create a Sales Order in ERPNext. Auto-submit if enabled.
+    Ensures stock reservation safety.
+    """
     if not SiteControl.is_website_integration_enabled():
-        raise HTTPException(status_code=503, detail="E-commerce integration is currently disabled.")
-
+        raise HTTPException(status_code=503, detail="E-commerce integration is disabled.")
     if not SiteControl.is_customer_sync_enabled():
         raise OrderValidationError("Customer service is disabled.")
-
     if SiteControl.is_site_frozen():
-        raise OrderValidationError("Store is currently under maintenance.")
+        raise OrderValidationError("Store is under maintenance.")
 
-    cart: List[Dict[str, Any]] = payload.get("cart", [])
+    cart = payload.get("cart", [])
     if not cart:
         raise OrderValidationError("Cart cannot be empty")
 
@@ -176,71 +178,37 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
     try:
         customer_id = get_or_create_customer(payload)
         address = payload.get("address", {})
-        DEFAULT_WAREHOUSE = SiteControl.get_default_source_warehouse()
-
-        if not DEFAULT_WAREHOUSE:
+        warehouse = SiteControl.get_default_source_warehouse()
+        if not warehouse:
             raise OrderValidationError("Default warehouse not configured.")
 
-        items_payload = []
-        for item in cart:
-            item_code = item.get("item_code")
-            qty = float(item.get("qty", 0))
-            if qty <= 0:
-                raise OrderValidationError("Quantity must be greater than zero")
-
-            item_data = _fetch_item_from_erp(item_code)
-            transformed = EcommerceEngine.transform_item(item_data)
-            if not transformed["is_price_visible"]:
-                raise OrderValidationError(f"Price hidden for item {item_code}")
-
-            unit_price = transformed["price"]
-            items_payload.append({
-                "item_code": item_code,
-                "qty": qty,
-                "uom": item.get("uom"),
-                "price_list_rate": unit_price,
-                "rate": unit_price,
-                "amount": qty * unit_price,
-                "warehouse": DEFAULT_WAREHOUSE,
-            })
+        items_payload = _prepare_items_payload(cart, warehouse)
 
         sales_order_payload = {
             "doctype": "Sales Order",
             "customer": customer_id,
             "transaction_date": _today(),
             "delivery_date": _today(),
-            "set_warehouse": DEFAULT_WAREHOUSE,
             "selling_price_list": "Standard Selling",
             "items": items_payload,
             "address_display": address.get("full_address"),
         }
 
         try:
-            # Create Sales Order in ERP
-            res = erp_request(
-                method="POST",
-                path="/api/resource/Sales Order",
-                json=sales_order_payload,
-            )
+            res = erp_request(method="POST", path="/api/resource/Sales Order", json=sales_order_payload)
         except ERPError:
             raise OrderValidationError("Order service temporarily unavailable.")
 
         doc = res.get("data") or {}
         so_id = doc.get("name")
 
-        # -------------------------------------------------
-        # AUTO SUBMIT if enabled
-        # -------------------------------------------------
+        # Auto-submit Sales Order if enabled
         if so_id and SiteControl.is_so_auto_submission_enabled():
             try:
-                erp_request(
-                    method="PUT",
-                    path=f"/api/resource/Sales Order/{so_id}",
-                    params={"submit": 1}
-                )
-            except ERPError:
-                # Fail-safe: leave as draft if submission fails
-                pass
+                erp_request(method="POST", path=f"/api/resource/Sales Order/{so_id}/submit")
+            except ERPError as e:
+                # Log the error but leave as draft
+                print(f"[WARN] Sales Order auto-submission failed for {so_id}: {e}")
 
         return {
             "status": "submitted",
@@ -253,15 +221,12 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         StockService.release_reservation(cart)
 
 
-# =================================================
-# ENTRY POINT
-# =================================================
 def create_ecommerce_order(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Entry point: creates RFQ or Sales Order based on default order type."""
     order_type = SiteControl.get_default_order_type()
-
     if order_type == "E-Commerce RFQ":
         return create_ecommerce_rfq(payload)
     elif order_type == "Sales Order":
         return create_sales_order(payload)
     else:
-        raise OrderValidationError("Invalid Default Order Type.")
+        raise OrderValidationError("Invalid default order type.")
