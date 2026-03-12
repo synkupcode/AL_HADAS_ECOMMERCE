@@ -2,8 +2,7 @@
 
 import time
 from typing import Any, Dict
-
-from app.integrations.erp_client import erp_request, ERPError
+from app.integrations.erp_client import erp_request
 
 
 class SiteControl:
@@ -22,24 +21,15 @@ class SiteControl:
     # Utilities
     # -----------------------------
     @staticmethod
-    def _to_yesno(value: Any) -> str:
+    def _to_bool(value: Any) -> bool:
         """
-        Convert any input to 'Yes' or 'No'.
+        Converts various ERPNext values to boolean.
+        Accepts: 'Yes', 'No', '1', '0', 'True', 'False' (case-insensitive)
         """
-        if isinstance(value, str):
-            value_clean = value.strip().lower()
-            if value_clean in ["1", "true", "yes"]:
-                return "Yes"
-        elif value in [1, True]:
-            return "Yes"
-        return "No"
-
-    @staticmethod
-    def _is_yes(value: Any) -> bool:
-        """
-        Returns True if value is Yes.
-        """
-        return str(value).strip().lower() == "yes"
+        if value is None:
+            return False
+        value_str = str(value).strip().lower()
+        return value_str in ["1", "true", "yes"]
 
     # -----------------------------
     # Core Settings Fetch (Cached)
@@ -50,17 +40,14 @@ class SiteControl:
         if cls._cache and (now - cls._last_fetch) < cls.CACHE_TTL:
             return cls._cache
 
-        try:
-            response = erp_request(
-                method="GET",
-                path=f"/api/resource/E-Commerce Settings/{cls.SETTINGS_NAME}",
-            )
-        except ERPError:
-            # Return empty dict if ERP unavailable
-            return {}
+        response = erp_request(
+            method="GET",
+            path=f"/api/resource/E-Commerce Settings/{cls.SETTINGS_NAME}",
+        )
 
         cls._cache = response.get("data", {}) or {}
         cls._last_fetch = now
+
         return cls._cache
 
     # -----------------------------
@@ -82,22 +69,22 @@ class SiteControl:
     @classmethod
     def is_website_integration_enabled(cls) -> bool:
         settings = cls._get_settings()
-        return cls._is_yes(settings.get("website_integration"))
+        return cls._to_bool(settings.get("website_integration"))
 
     @classmethod
     def is_item_sync_enabled(cls) -> bool:
         settings = cls._get_settings()
-        return cls._is_yes(settings.get("enable_item_sync"))
+        return cls._to_bool(settings.get("enable_item_sync"))
 
     @classmethod
     def is_customer_sync_enabled(cls) -> bool:
         settings = cls._get_settings()
-        return cls._is_yes(settings.get("enable_customer_sync"))
+        return cls._to_bool(settings.get("enable_customer_sync"))
 
     @classmethod
     def is_price_visibility_enabled(cls) -> bool:
         settings = cls._get_settings()
-        return cls._is_yes(settings.get("enable_price_visibility"))
+        return cls._to_bool(settings.get("enable_price_visibility"))
 
     # -----------------------------
     # Default Order Settings
@@ -118,12 +105,12 @@ class SiteControl:
     @classmethod
     def is_minus_stock_selling_enabled(cls) -> bool:
         settings = cls._get_settings()
-        return cls._is_yes(settings.get("enable_minus_stock_selling"))
+        return cls._to_bool(settings.get("enable_minus_stock_selling"))
 
     @classmethod
     def is_available_quantity_visible(cls) -> bool:
         settings = cls._get_settings()
-        return cls._is_yes(settings.get("show_available_quantity"))
+        return cls._to_bool(settings.get("show_available_quantity"))
 
     # -----------------------------
     # SO Auto Submission
@@ -131,8 +118,7 @@ class SiteControl:
     @classmethod
     def is_so_auto_submission_enabled(cls) -> bool:
         """
-        Returns True if 'SO Auto Submission' is set to Yes in E-Commerce Settings
+        Returns True if 'SO Auto Submission' is enabled in E-Commerce Settings.
         """
         settings = cls._get_settings()
-        value = settings.get("so_auto_submission", "No")
-        return cls._is_yes(value)
+        return cls._to_bool(settings.get("so_auto_submission"))
