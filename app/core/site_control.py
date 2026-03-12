@@ -110,9 +110,9 @@ class SiteControl:
     # NEW: SO Auto Submission
     # -----------------------------
     @classmethod
-    def is_so_auto_submission_enabled(cls) -> bool:
+    def is_so_auto_submission_enabled(cls) -> str:
         """
-        Returns True if 'SO Auto Submission' is enabled in E-Commerce Settings
+        Returns 'Yes' or 'No' exactly as stored in E-Commerce Settings
         """
         settings = cls._get_settings()
-        return cls._to_bool(settings.get("so_auto_submission"))
+        return settings.get("so_auto_submission", "No")
