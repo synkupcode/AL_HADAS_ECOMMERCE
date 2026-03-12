@@ -202,12 +202,15 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         doc = res.get("data") or {}
         so_id = doc.get("name")
 
-        # Auto-submit Sales Order if enabled
+                # Correct auto-submit using run_method
         if so_id and SiteControl.is_so_auto_submission_enabled():
             try:
-                erp_request(method="POST", path=f"/api/resource/Sales Order/{so_id}/submit")
+                erp_request(
+                    method="POST",
+                    path=f"/api/resource/Sales Order/{so_id}",
+                    json={"run_method": "submit"}  # <-- required
+                )
             except ERPError as e:
-                # Log the error but leave as draft
                 print(f"[WARN] Sales Order auto-submission failed for {so_id}: {e}")
 
         return {
