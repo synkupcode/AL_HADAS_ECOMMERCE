@@ -1,8 +1,9 @@
+# app/services/order_service.py
+
 from datetime import datetime, timezone
 from typing import Dict, Any, List
-import logging
 
-from fastapi import HTTPException
+from fastapi import HTTPException, BackgroundTasks
 
 from app.core.site_control import SiteControl
 from app.core.config import settings
@@ -10,14 +11,18 @@ from app.integrations.erp_client import erp_request, ERPError
 from app.services.customer_service import get_or_create_customer
 from app.services.ecommerce.ecommerce_engine import EcommerceEngine
 from app.services.stock_service import StockService
+import time
+import logging
 
 logger = logging.getLogger(__name__)
 
 class OrderValidationError(ValueError):
     pass
 
+
 def _today():
     return datetime.now(timezone.utc).date().isoformat()
+
 
 # =================================================
 # FETCH ITEM FROM ERP (USED FOR PRICING)
@@ -55,19 +60,42 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
     item = res.get("data")
     if not item:
         raise OrderValidationError(f"Item not found: {item_code}")
-
     return item
+
+
+# =================================================
+# BACKGROUND SUBMIT HELPER
+# =================================================
+def submit_sales_order_background(so_id: str):
+    """Retry submission up to 5 times with short delays."""
+    max_retries = 5
+    delay = 0.5  # seconds
+    for attempt in range(max_retries):
+        try:
+            erp_request(
+                method="POST",
+                path="/api/method/frappe.client.submit",
+                json={"doctype": "Sales Order", "name": so_id},
+            )
+            logger.info(f"Sales Order {so_id} auto-submitted successfully")
+            return True
+        except ERPError as e:
+            logger.warning(f"Attempt {attempt+1}: failed to submit SO {so_id}: {str(e)}")
+            time.sleep(delay)
+    logger.error(f"Sales Order {so_id} could not be auto-submitted after {max_retries} attempts")
+    return False
+
 
 # =================================================
 # RFQ CREATION
 # =================================================
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not SiteControl.is_website_integration_enabled():
-        raise HTTPException(status_code=503, detail="E-commerce integration is disabled.")
+        raise HTTPException(status_code=503, detail="E-commerce integration is currently disabled.")
     if not SiteControl.is_customer_sync_enabled():
         raise OrderValidationError("Customer service is disabled.")
     if SiteControl.is_site_frozen():
-        raise OrderValidationError("Store is under maintenance.")
+        raise OrderValidationError("Store is currently under maintenance.")
 
     cart: List[Dict[str, Any]] = payload.get("cart", [])
     if not cart:
@@ -85,20 +113,19 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             qty = float(item.get("qty", 0))
             if qty <= 0:
                 raise OrderValidationError("Quantity must be greater than zero")
-
             item_data = _fetch_item_from_erp(item_code)
             transformed = EcommerceEngine.transform_item(item_data)
-
             if not transformed["is_price_visible"]:
                 raise OrderValidationError(f"Price hidden for item {item_code}")
+            unit_price = transformed["price"]
 
             items_payload.append({
                 "item_code": item_code,
                 "item_name": item.get("item_name"),
                 "quantity": qty,
-                "unit_pricex": transformed["price"],
+                "unit_pricex": unit_price,
                 "uom": item.get("uom"),
-                "amount": qty * transformed["price"],
+                "amount": qty * unit_price,
             })
 
         address = payload.get("address", {})
@@ -119,7 +146,6 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             "full_address": address.get("full_address"),
             "item_table": items_payload,
         }
-
         rfq_payload = {k: v for k, v in rfq_payload.items() if v not in (None, "", [])}
 
         try:
@@ -140,21 +166,20 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             "customer_id": customer_id,
             "created_at": _today(),
         }
-
     finally:
         StockService.release_reservation(cart)
 
 
 # =================================================
-# SALES ORDER CREATION
+# SALES ORDER CREATION (with Background Auto-Submit)
 # =================================================
-def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
+def create_sales_order(payload: Dict[str, Any], background_tasks: BackgroundTasks = None) -> Dict[str, Any]:
     if not SiteControl.is_website_integration_enabled():
-        raise HTTPException(status_code=503, detail="E-commerce integration is disabled.")
+        raise HTTPException(status_code=503, detail="E-commerce integration is currently disabled.")
     if not SiteControl.is_customer_sync_enabled():
         raise OrderValidationError("Customer service is disabled.")
     if SiteControl.is_site_frozen():
-        raise OrderValidationError("Store is under maintenance.")
+        raise OrderValidationError("Store is currently under maintenance.")
 
     cart: List[Dict[str, Any]] = payload.get("cart", [])
     if not cart:
@@ -176,19 +201,19 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
             qty = float(item.get("qty", 0))
             if qty <= 0:
                 raise OrderValidationError("Quantity must be greater than zero")
-
             item_data = _fetch_item_from_erp(item_code)
             transformed = EcommerceEngine.transform_item(item_data)
             if not transformed["is_price_visible"]:
                 raise OrderValidationError(f"Price hidden for item {item_code}")
+            unit_price = transformed["price"]
 
             items_payload.append({
                 "item_code": item_code,
                 "qty": qty,
                 "uom": item.get("uom"),
-                "price_list_rate": transformed["price"],
-                "rate": transformed["price"],
-                "amount": qty * transformed["price"],
+                "price_list_rate": unit_price,
+                "rate": unit_price,
+                "amount": qty * unit_price,
                 "warehouse": DEFAULT_WAREHOUSE,
             })
 
@@ -215,20 +240,11 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         doc = res.get("data") or {}
         so_id = doc.get("name")
 
-        # -----------------------------
-        # AUTO SUBMISSION (Yes/No)
-        # -----------------------------
-        if so_id and SiteControl.is_so_auto_submission_enabled() == "Yes":
-            try:
-                logger.info(f"Attempting to auto-submit Sales Order {so_id}")
-                erp_request(
-                    method="POST",
-                    path="/api/method/frappe.client.submit",
-                    json={"doctype": "Sales Order", "name": so_id},
-                )
-                logger.info(f"Sales Order {so_id} auto-submitted successfully")
-            except ERPError as e:
-                logger.error(f"Failed to auto-submit SO {so_id}: {e}")
+        # -------------------------------
+        # Background Auto-Submit
+        # -------------------------------
+        if so_id and SiteControl.is_so_auto_submission_enabled() and background_tasks:
+            background_tasks.add_task(submit_sales_order_background, so_id)
 
         return {
             "status": "submitted",
@@ -236,7 +252,6 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
             "customer_id": customer_id,
             "created_at": _today(),
         }
-
     finally:
         StockService.release_reservation(cart)
 
@@ -244,11 +259,14 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 # =================================================
 # ENTRY POINT
 # =================================================
-def create_ecommerce_order(payload: Dict[str, Any]) -> Dict[str, Any]:
+def create_ecommerce_order(payload: Dict[str, Any], background_tasks: BackgroundTasks = None) -> Dict[str, Any]:
     order_type = SiteControl.get_default_order_type()
+
     if order_type == "E-Commerce RFQ":
         return create_ecommerce_rfq(payload)
+
     elif order_type == "Sales Order":
-        return create_sales_order(payload)
+        return create_sales_order(payload, background_tasks=background_tasks)
+
     else:
         raise OrderValidationError("Invalid Default Order Type.")
