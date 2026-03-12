@@ -1,5 +1,8 @@
+# app/services/order_service.py
+
 from datetime import datetime, timezone
 from typing import Dict, Any, List
+import logging
 
 from fastapi import HTTPException
 
@@ -10,6 +13,7 @@ from app.services.customer_service import get_or_create_customer
 from app.services.ecommerce.ecommerce_engine import EcommerceEngine
 from app.services.stock_service import StockService
 
+logger = logging.getLogger(__name__)
 
 class OrderValidationError(ValueError):
     pass
@@ -23,7 +27,6 @@ def _today():
 # FETCH ITEM FROM ERP (USED FOR PRICING)
 # =================================================
 def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
-
     fields = [
         "item_code",
         "item_name",
@@ -65,12 +68,8 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 # RFQ CREATION
 # =================================================
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
-
     if not SiteControl.is_website_integration_enabled():
-        raise HTTPException(
-            status_code=503,
-            detail="E-commerce integration is currently disabled."
-        )
+        raise HTTPException(status_code=503, detail="E-commerce integration is currently disabled.")
 
     if not SiteControl.is_customer_sync_enabled():
         raise OrderValidationError("Customer service is disabled.")
@@ -79,7 +78,6 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise OrderValidationError("Store is currently under maintenance.")
 
     cart: List[Dict[str, Any]] = payload.get("cart", [])
-
     if not cart:
         raise OrderValidationError("Cart cannot be empty")
 
@@ -87,30 +85,21 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     StockService.reserve_stock(cart)
 
     try:
-
         customer_id = get_or_create_customer(payload)
-
         items_payload = []
 
         for item in cart:
-
             item_code = item.get("item_code")
             qty = float(item.get("qty", 0))
-
             if qty <= 0:
                 raise OrderValidationError("Quantity must be greater than zero")
 
             item_data = _fetch_item_from_erp(item_code)
-
             transformed = EcommerceEngine.transform_item(item_data)
-
             if not transformed["is_price_visible"]:
-                raise OrderValidationError(
-                    f"Price hidden for item {item_code}"
-                )
+                raise OrderValidationError(f"Price hidden for item {item_code}")
 
             unit_price = transformed["price"]
-
             items_payload.append({
                 "item_code": item_code,
                 "item_name": item.get("item_name"),
@@ -121,14 +110,7 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             })
 
         address = payload.get("address", {})
-
-        required_fields = [
-            "building_no",
-            "postal_code",
-            "city",
-            "full_address",
-        ]
-
+        required_fields = ["building_no", "postal_code", "city", "full_address"]
         for field in required_fields:
             if not address.get(field):
                 raise OrderValidationError(f"{field} is required")
@@ -145,32 +127,17 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
             "full_address": address.get("full_address"),
             "item_table": items_payload,
         }
-
-        rfq_payload = {
-            k: v for k, v in rfq_payload.items()
-            if v not in (None, "", [])
-        }
+        rfq_payload = {k: v for k, v in rfq_payload.items() if v not in (None, "", [])}
 
         try:
-            res = erp_request(
-                method="POST",
-                path=f"/api/resource/{settings.ECOM_RFQ_DOCTYPE}",
-                json=rfq_payload,
-            )
+            res = erp_request(method="POST", path=f"/api/resource/{settings.ECOM_RFQ_DOCTYPE}", json=rfq_payload)
         except ERPError:
-            raise OrderValidationError(
-                "Order service temporarily unavailable."
-            )
+            raise OrderValidationError("Order service temporarily unavailable.")
 
         doc = res.get("data") or {}
         rfq_id = doc.get("name")
 
-        return {
-            "status": "submitted",
-            "ecommerce_rfq_id": rfq_id,
-            "customer_id": customer_id,
-            "created_at": _today(),
-        }
+        return {"status": "submitted", "ecommerce_rfq_id": rfq_id, "customer_id": customer_id, "created_at": _today()}
 
     finally:
         StockService.release_reservation(cart)
@@ -180,12 +147,8 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 # SALES ORDER CREATION
 # =================================================
 def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
-
     if not SiteControl.is_website_integration_enabled():
-        raise HTTPException(
-            status_code=503,
-            detail="E-commerce integration is currently disabled."
-        )
+        raise HTTPException(status_code=503, detail="E-commerce integration is currently disabled.")
 
     if not SiteControl.is_customer_sync_enabled():
         raise OrderValidationError("Customer service is disabled.")
@@ -194,7 +157,6 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise OrderValidationError("Store is currently under maintenance.")
 
     cart: List[Dict[str, Any]] = payload.get("cart", [])
-
     if not cart:
         raise OrderValidationError("Cart cannot be empty")
 
@@ -202,37 +164,25 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
     StockService.reserve_stock(cart)
 
     try:
-
         customer_id = get_or_create_customer(payload)
-
         address = payload.get("address", {})
-
         DEFAULT_WAREHOUSE = SiteControl.get_default_source_warehouse()
-
         if not DEFAULT_WAREHOUSE:
             raise OrderValidationError("Default warehouse not configured.")
 
         items_payload = []
-
         for item in cart:
-
             item_code = item.get("item_code")
             qty = float(item.get("qty", 0))
-
             if qty <= 0:
                 raise OrderValidationError("Quantity must be greater than zero")
 
             item_data = _fetch_item_from_erp(item_code)
-
             transformed = EcommerceEngine.transform_item(item_data)
-
             if not transformed["is_price_visible"]:
-                raise OrderValidationError(
-                    f"Price hidden for item {item_code}"
-                )
+                raise OrderValidationError(f"Price hidden for item {item_code}")
 
             unit_price = transformed["price"]
-
             items_payload.append({
                 "item_code": item_code,
                 "qty": qty,
@@ -255,38 +205,29 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         }
 
         try:
-            res = erp_request(
-                method="POST",
-                path="/api/resource/Sales Order",
-                json=sales_order_payload,
-            )
+            res = erp_request(method="POST", path="/api/resource/Sales Order", json=sales_order_payload)
         except ERPError:
-            raise OrderValidationError(
-                "Order service temporarily unavailable."
-            )
+            raise OrderValidationError("Order service temporarily unavailable.")
 
         doc = res.get("data") or {}
         so_id = doc.get("name")
 
         # -------------------------------------------------
-        # OPTIONAL AUTO SUBMIT (Controlled by SiteControl)
+        # AUTO SUBMIT SALES ORDER (if enabled)
         # -------------------------------------------------
         if so_id and SiteControl.is_so_auto_submission_enabled():
             try:
                 erp_request(
                     method="POST",
                     path="/api/method/frappe.client.submit",
-                    json={
-                        "doctype": "Sales Order",
-                        "name": so_id
-                    },
+                    json={"doctype": "Sales Order", "name": so_id}
                 )
             except ERPError:
-                # Do not fail checkout if submission fails
+                # Auto submission failed, do not block order creation
                 pass
 
         return {
-            "status": "submitted",
+            "status": "submitted" if SiteControl.is_so_auto_submission_enabled() else "draft",
             "ecommerce_rfq_id": so_id,
             "customer_id": customer_id,
             "created_at": _today(),
@@ -300,14 +241,10 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 # ENTRY POINT
 # =================================================
 def create_ecommerce_order(payload: Dict[str, Any]) -> Dict[str, Any]:
-
     order_type = SiteControl.get_default_order_type()
-
     if order_type == "E-Commerce RFQ":
         return create_ecommerce_rfq(payload)
-
     elif order_type == "Sales Order":
         return create_sales_order(payload)
-
     else:
         raise OrderValidationError("Invalid Default Order Type.")
