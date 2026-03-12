@@ -93,6 +93,19 @@ class SiteControl:
         return settings.get("default_source_warehouse")
 
     # -----------------------------
+    # Sales Order Controls
+    # -----------------------------
+    @classmethod
+    def is_so_auto_submission_enabled(cls) -> bool:
+        """
+        Returns True if Sales Orders should be automatically
+        submitted after creation.
+        Controlled via ERP E-Commerce Settings.
+        """
+        settings = cls._get_settings()
+        return cls._to_bool(settings.get("so_auto_submission"))
+
+    # -----------------------------
     # Inventory Controls
     # -----------------------------
     @classmethod
