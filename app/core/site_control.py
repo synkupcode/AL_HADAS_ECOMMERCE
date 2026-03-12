@@ -1,3 +1,5 @@
+# app/core/site_control.py
+
 import time
 from typing import Any, Dict
 
@@ -29,7 +31,6 @@ class SiteControl:
     @classmethod
     def _get_settings(cls) -> Dict[str, Any]:
         now = time.time()
-
         if cls._cache and (now - cls._last_fetch) < cls.CACHE_TTL:
             return cls._cache
 
@@ -93,19 +94,6 @@ class SiteControl:
         return settings.get("default_source_warehouse")
 
     # -----------------------------
-    # Sales Order Controls
-    # -----------------------------
-    @classmethod
-    def is_so_auto_submission_enabled(cls) -> bool:
-        """
-        Returns True if Sales Orders should be automatically
-        submitted after creation.
-        Controlled via ERP E-Commerce Settings.
-        """
-        settings = cls._get_settings()
-        return cls._to_bool(settings.get("so_auto_submission"))
-
-    # -----------------------------
     # Inventory Controls
     # -----------------------------
     @classmethod
@@ -117,3 +105,14 @@ class SiteControl:
     def is_available_quantity_visible(cls) -> bool:
         settings = cls._get_settings()
         return cls._to_bool(settings.get("show_available_quantity"))
+
+    # -----------------------------
+    # NEW: SO Auto Submission
+    # -----------------------------
+    @classmethod
+    def is_so_auto_submission_enabled(cls) -> bool:
+        """
+        Returns True if 'SO Auto Submission' is enabled in E-Commerce Settings
+        """
+        settings = cls._get_settings()
+        return cls._to_bool(settings.get("so_auto_submission"))
