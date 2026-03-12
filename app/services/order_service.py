@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from typing import Dict, Any, List
+
 from fastapi import HTTPException
 
 from app.core.site_control import SiteControl
@@ -66,16 +67,13 @@ def _fetch_item_from_erp(item_code: str) -> Dict[str, Any]:
 # =================================================
 def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not SiteControl.is_website_integration_enabled():
-        raise HTTPException(
-            status_code=503,
-            detail="E-commerce integration is currently disabled."
-        )
+        raise HTTPException(status_code=503, detail="E-commerce integration is currently disabled.")
 
     if not SiteControl.is_customer_sync_enabled():
         raise OrderValidationError("Customer service is disabled.")
 
     if SiteControl.is_site_frozen():
-        raise OrderValidationError("Store is under maintenance.")
+        raise OrderValidationError("Store is currently under maintenance.")
 
     cart: List[Dict[str, Any]] = payload.get("cart", [])
     if not cart:
@@ -96,10 +94,12 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 
             item_data = _fetch_item_from_erp(item_code)
             transformed = EcommerceEngine.transform_item(item_data)
+
             if not transformed["is_price_visible"]:
                 raise OrderValidationError(f"Price hidden for item {item_code}")
 
             unit_price = transformed["price"]
+
             items_payload.append({
                 "item_code": item_code,
                 "item_name": item.get("item_name"),
@@ -158,16 +158,13 @@ def create_ecommerce_rfq(payload: Dict[str, Any]) -> Dict[str, Any]:
 # =================================================
 def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not SiteControl.is_website_integration_enabled():
-        raise HTTPException(
-            status_code=503,
-            detail="E-commerce integration is currently disabled."
-        )
+        raise HTTPException(status_code=503, detail="E-commerce integration is currently disabled.")
 
     if not SiteControl.is_customer_sync_enabled():
         raise OrderValidationError("Customer service is disabled.")
 
     if SiteControl.is_site_frozen():
-        raise OrderValidationError("Store is under maintenance.")
+        raise OrderValidationError("Store is currently under maintenance.")
 
     cart: List[Dict[str, Any]] = payload.get("cart", [])
     if not cart:
@@ -180,6 +177,7 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         customer_id = get_or_create_customer(payload)
         address = payload.get("address", {})
         DEFAULT_WAREHOUSE = SiteControl.get_default_source_warehouse()
+
         if not DEFAULT_WAREHOUSE:
             raise OrderValidationError("Default warehouse not configured.")
 
@@ -218,6 +216,7 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         }
 
         try:
+            # Create Sales Order in ERP
             res = erp_request(
                 method="POST",
                 path="/api/resource/Sales Order",
@@ -229,19 +228,19 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
         doc = res.get("data") or {}
         so_id = doc.get("name")
 
-        # -----------------------------
-        # AUTO SUBMIT Sales Order if Enabled
-        # -----------------------------
+        # -------------------------------------------------
+        # AUTO SUBMIT if enabled
+        # -------------------------------------------------
         if so_id and SiteControl.is_so_auto_submission_enabled():
             try:
                 erp_request(
                     method="PUT",
                     path=f"/api/resource/Sales Order/{so_id}",
-                    json={"submit": 1},
+                    params={"submit": 1}
                 )
-            except ERPError as e:
-                # Log the failure but do not break checkout
-                print(f"Auto-submit failed for SO {so_id}: {str(e)}")
+            except ERPError:
+                # Fail-safe: leave as draft if submission fails
+                pass
 
         return {
             "status": "submitted",
@@ -259,6 +258,7 @@ def create_sales_order(payload: Dict[str, Any]) -> Dict[str, Any]:
 # =================================================
 def create_ecommerce_order(payload: Dict[str, Any]) -> Dict[str, Any]:
     order_type = SiteControl.get_default_order_type()
+
     if order_type == "E-Commerce RFQ":
         return create_ecommerce_rfq(payload)
     elif order_type == "Sales Order":
