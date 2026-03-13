@@ -16,6 +16,7 @@ ERP_BASE_URL = os.getenv("ERP_BASE_URL", "").rstrip("/")
 
 
 def normalize_image(image_path: Optional[str]) -> str:
+
     if not image_path:
         return ""
 
@@ -37,18 +38,20 @@ def get_products(
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> Dict[str, Any]:
 
-    # ------------------------
-    # Master switch
-    # ------------------------
+    # -------------------------------------------------
+    # MASTER INTEGRATION SWITCH
+    # -------------------------------------------------
+
     if not SiteControl.is_website_integration_enabled():
         raise HTTPException(
             status_code=503,
-            detail="E-commerce integration is currently disabled."
+            detail="E-commerce integration is currently disabled.",
         )
 
-    # ------------------------
-    # Catalog switch
-    # ------------------------
+    # -------------------------------------------------
+    # CATALOG SWITCH
+    # -------------------------------------------------
+
     if not SiteControl.is_item_sync_enabled():
         return {
             "status": "catalog_disabled",
@@ -64,24 +67,29 @@ def get_products(
 
     if page < 1:
         page = 1
+
     if page_size < 1:
         page_size = DEFAULT_PAGE_SIZE
 
-    # ------------------------
-    # Filters
-    # ------------------------
+    # -------------------------------------------------
+    # FILTERS
+    # -------------------------------------------------
+
     filters: List[Any] = [
         ["disabled", "=", 0],
         ["custom_enable_item", "=", 1],
     ]
+
     if category:
         filters.append(["item_group", "=", category])
+
     if subcategory:
         filters.append(["custom_subcategory", "=", subcategory])
 
-    # ------------------------
-    # Fields
-    # ------------------------
+    # -------------------------------------------------
+    # FIELDS
+    # -------------------------------------------------
+
     fields = [
         "item_code",
         "item_name",
@@ -119,9 +127,10 @@ def get_products(
         "order_by": "modified desc",
     }
 
-    # ------------------------
-    # Total count
-    # ------------------------
+    # -------------------------------------------------
+    # TOTAL COUNT
+    # -------------------------------------------------
+
     count_response = erp_request(
         "GET",
         "/api/resource/Item",
@@ -131,82 +140,94 @@ def get_products(
             "limit_page_length": 0,
         },
     )
-    total_items = len(count_response.get("data", []) or [])
-    total_pages = (total_items + page_size - 1) // page_size if page_size > 0 else 1
 
-    # ------------------------
-    # Main data request
-    # ------------------------
+    total_items = len(count_response.get("data", []) or [])
+
+    total_pages = (
+        (total_items + page_size - 1) // page_size
+        if page_size > 0
+        else 1
+    )
+
+    # -------------------------------------------------
+    # FETCH PRODUCTS
+    # -------------------------------------------------
+
     response = erp_request(
         "GET",
         "/api/resource/Item",
         params=params,
     )
+
     items = response.get("data", []) or []
 
-    # ------------------------
-    # Search filter
-    # ------------------------
+    # -------------------------------------------------
+    # SEARCH FILTER
+    # -------------------------------------------------
+
     if search:
         search_lower = search.lower()
+
         items = [
-            item for item in items
+            item
+            for item in items
             if search_lower in (item.get("item_name") or "").lower()
             or search_lower in (item.get("item_code") or "").lower()
         ]
 
-    # ------------------------
-    # Fetch stock
-    # ------------------------
-    item_codes = [item.get("item_code") for item in items if item.get("item_code")]
+    # -------------------------------------------------
+    # FETCH STOCK
+    # -------------------------------------------------
+
+    item_codes = [
+        item.get("item_code")
+        for item in items
+        if item.get("item_code")
+    ]
+
     stock_map = StockService.fetch_stock_map(item_codes)
 
-    # ------------------------
-    # Transform items with debug
-    # ------------------------
+    # -------------------------------------------------
+    # TRANSFORM ITEMS
+    # -------------------------------------------------
+
     formatted_items = []
 
     for item in items:
+
         ecommerce_data = EcommerceEngine.transform_item(item)
+
         stock_data = StockService.resolve_stock_status(item, stock_map)
 
-        # --- DEBUG: root cause check ---
-        print(f"DEBUG ITEM: {item.get('item_code')}")
-        print(f"  stock_map available: {stock_map.get(item.get('item_code'))}")
-        print(f"  stock_data: {stock_data}")
-        print(f"  SiteControl.is_available_qty_enabled: {SiteControl.is_available_qty_enabled()}")
-        print(f"  show_stock flag: {item.get('custom_show_stock')}")
-        print(f"  available_qty in stock_data: {stock_data.get('available_qty')}")
-        print(f"  ecommerce_data price: {ecommerce_data['price']}")
-
-        # Global price visibility
         is_price_visible_global = SiteControl.is_price_visibility_enabled()
 
         product = {
             "item_code": item.get("item_code") or "",
             "item_name": item.get("item_name") or "",
             "description": item.get("description") or "",
-            "price": ecommerce_data["price"] if is_price_visible_global else None,
-            "original_price": ecommerce_data["original_price"],
-            "discount_percentage": ecommerce_data["discount_percentage"],
-            "is_on_sale": ecommerce_data["is_on_sale"],
-            "image": normalize_image(ecommerce_data["image"]),
+            "price": ecommerce_data.get("price")
+            if is_price_visible_global
+            else None,
+            "original_price": ecommerce_data.get("original_price"),
+            "discount_percentage": ecommerce_data.get("discount_percentage"),
+            "is_on_sale": ecommerce_data.get("is_on_sale"),
+            "image": normalize_image(ecommerce_data.get("image")),
             "category": item.get("item_group") or "Uncategorized",
             "subcategory": item.get("custom_subcategory") or "Other",
             "stock_status": stock_data["stock_status"],
-            "is_price_visible": ecommerce_data["is_price_visible"],
-            "is_image_visible": ecommerce_data["is_image_visible"],
+            "is_price_visible": ecommerce_data.get("is_price_visible"),
+            "is_image_visible": ecommerce_data.get("is_image_visible"),
         }
 
-        # Only include quantity if calculated
         if "available_qty" in stock_data:
             product["available_qty"] = stock_data["available_qty"]
 
         formatted_items.append(product)
 
-    # ------------------------
-    # Return API response
-    # ------------------------
+    # -------------------------------------------------
+    # FINAL RESPONSE
+    # -------------------------------------------------
+
     return {
         "status": "success",
         "items": formatted_items,
