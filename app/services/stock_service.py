@@ -10,9 +10,9 @@ class StockService:
     RESERVATION_TIMEOUT_MINUTES = 10
     RESERVED_STOCK: Dict[str, List[Tuple[float, datetime]]] = {}
 
-    # -----------------------------
-    # Cleanup expired reservations
-    # -----------------------------
+    # -----------------------------------
+    # CLEAN EXPIRED RESERVATIONS
+    # -----------------------------------
 
     @classmethod
     def _cleanup_expired(cls):
@@ -33,9 +33,9 @@ class StockService:
             else:
                 del cls.RESERVED_STOCK[item_code]
 
-    # -----------------------------
-    # Reserved quantity
-    # -----------------------------
+    # -----------------------------------
+    # RESERVED QTY
+    # -----------------------------------
 
     @classmethod
     def _get_reserved_qty(cls, item_code: str) -> float:
@@ -46,9 +46,9 @@ class StockService:
 
         return sum(qty for qty, _ in entries)
 
-    # -----------------------------
-    # Fetch stock from ERP
-    # -----------------------------
+    # -----------------------------------
+    # FETCH STOCK FROM ERP
+    # -----------------------------------
 
     @classmethod
     def fetch_stock_map(cls, item_codes: List[str]) -> Dict[str, float]:
@@ -100,9 +100,9 @@ class StockService:
 
         return stock_map
 
-    # -----------------------------
-    # Resolve stock status
-    # -----------------------------
+    # -----------------------------------
+    # STOCK STATUS LOGIC
+    # -----------------------------------
 
     @classmethod
     def resolve_stock_status(cls, item: Dict, stock_map: Dict[str, float]) -> Dict:
@@ -124,11 +124,19 @@ class StockService:
 
         show_quantity = SiteControl.is_available_quantity_visible()
 
+        # ---------------- DEBUG ----------------
+        print("------------- STOCK DEBUG -------------")
+        print("ITEM CODE:", item_code)
+        print("SHOW STOCK (Item):", show_stock)
+        print("SITE SHOW QUANTITY:", show_quantity)
+        print("ERP AVAILABLE STOCK:", available)
+        print("MINUS STOCK ENABLED:", minus_stock)
+        print("---------------------------------------")
+        # ---------------------------------------
+
         result: Dict = {"stock_status": "Out of Stock"}
 
-        # -----------------------------
-        # Stock status logic
-        # -----------------------------
+        # STOCK STATUS
 
         if show_stock == 1:
 
@@ -142,18 +150,17 @@ class StockService:
                 else:
                     result["stock_status"] = "Out of Stock"
 
-        # -----------------------------
-        # Quantity visibility
-        # -----------------------------
+        # QUANTITY VISIBILITY
 
         if show_stock == 1 and show_quantity and available > 0:
+
             result["available_qty"] = int(available)
 
         return result
 
-    # -----------------------------
-    # Cart validation
-    # -----------------------------
+    # -----------------------------------
+    # CART VALIDATION
+    # -----------------------------------
 
     @classmethod
     def validate_cart_stock(cls, cart_items: List[Dict]):
@@ -187,9 +194,9 @@ class StockService:
                 f"Available: {available}, Requested: {qty}"
             )
 
-    # -----------------------------
-    # Reserve stock
-    # -----------------------------
+    # -----------------------------------
+    # RESERVE STOCK
+    # -----------------------------------
 
     @classmethod
     def reserve_stock(cls, cart_items: List[Dict]):
@@ -204,9 +211,9 @@ class StockService:
 
             cls.RESERVED_STOCK.setdefault(item_code, []).append((qty, now))
 
-    # -----------------------------
-    # Release reservation
-    # -----------------------------
+    # -----------------------------------
+    # RELEASE STOCK
+    # -----------------------------------
 
     @classmethod
     def release_reservation(cls, cart_items: List[Dict]):
