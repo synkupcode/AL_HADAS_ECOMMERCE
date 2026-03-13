@@ -1,5 +1,3 @@
-# app/core/site_control.py
-
 import time
 from typing import Any, Dict
 
@@ -13,30 +11,22 @@ class SiteControl:
     """
 
     SETTINGS_NAME = "1tk6cucvc9"
-    CACHE_TTL = 60  # seconds
+    CACHE_TTL = 60
 
     _cache: Dict[str, Any] | None = None
     _last_fetch: float = 0
 
-    # -----------------------------
-    # Utilities
-    # -----------------------------
     @staticmethod
     def _to_bool(value: Any) -> bool:
-        """
-        Convert ERP setting value to boolean.
-        Handles "Yes"/"No" explicitly.
-        """
         if isinstance(value, str):
             return value.strip().lower() == "yes"
         return bool(value)
 
-    # -----------------------------
-    # Core Settings Fetch (Cached)
-    # -----------------------------
     @classmethod
     def _get_settings(cls) -> Dict[str, Any]:
+
         now = time.time()
+
         if cls._cache and (now - cls._last_fetch) < cls.CACHE_TTL:
             return cls._cache
 
@@ -51,8 +41,9 @@ class SiteControl:
         return cls._cache
 
     # -----------------------------
-    # Store Visibility
+    # Store visibility
     # -----------------------------
+
     @classmethod
     def get_store_visibility(cls) -> str:
         settings = cls._get_settings()
@@ -66,6 +57,7 @@ class SiteControl:
     # -----------------------------
     # Integration Controls
     # -----------------------------
+
     @classmethod
     def is_website_integration_enabled(cls) -> bool:
         settings = cls._get_settings()
@@ -87,21 +79,9 @@ class SiteControl:
         return cls._to_bool(settings.get("enable_price_visibility"))
 
     # -----------------------------
-    # Default Order Settings
-    # -----------------------------
-    @classmethod
-    def get_default_order_type(cls) -> str:
-        settings = cls._get_settings()
-        return settings.get("default_order_type", "E-Commerce RFQ")
-
-    @classmethod
-    def get_default_source_warehouse(cls) -> str:
-        settings = cls._get_settings()
-        return settings.get("default_source_warehouse")
-
-    # -----------------------------
     # Inventory Controls
     # -----------------------------
+
     @classmethod
     def is_minus_stock_selling_enabled(cls) -> bool:
         settings = cls._get_settings()
@@ -113,13 +93,24 @@ class SiteControl:
         return cls._to_bool(settings.get("show_available_quantity"))
 
     # -----------------------------
-    # NEW: SO Auto Submission
+    # Default Order Settings
     # -----------------------------
+
+    @classmethod
+    def get_default_order_type(cls) -> str:
+        settings = cls._get_settings()
+        return settings.get("default_order_type", "E-Commerce RFQ")
+
+    @classmethod
+    def get_default_source_warehouse(cls) -> str:
+        settings = cls._get_settings()
+        return settings.get("default_source_warehouse")
+
+    # -----------------------------
+    # Sales Order Automation
+    # -----------------------------
+
     @classmethod
     def is_so_auto_submission_enabled(cls) -> bool:
-        """
-        Returns True if 'SO Auto Submission' is enabled in E-Commerce Settings.
-        Reads "Yes"/"No" directly.
-        """
         settings = cls._get_settings()
         return cls._to_bool(settings.get("so_auto_submission"))
