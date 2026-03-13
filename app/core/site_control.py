@@ -90,7 +90,7 @@ class SiteControl:
     @classmethod
     def is_available_quantity_visible(cls) -> bool:
         settings = cls._get_settings()
-        return cls._to_bool(settings.get("show_available_quantity"))
+        return cls._to_bool(settings.get("show_exact_quantity"))
 
     # -----------------------------
     # Default Order Settings
