@@ -27,6 +27,7 @@ class StockService:
                 (qty, ts) for qty, ts in cls.RESERVED_STOCK[item_code]
                 if now - ts < timeout
             ]
+
             if valid_entries:
                 cls.RESERVED_STOCK[item_code] = valid_entries
             else:
@@ -75,14 +76,17 @@ class StockService:
             try:
                 actual = float(b.get("actual_qty") or 0)
                 reserved = float(b.get("reserved_qty") or 0)
+
+                # ERP available stock
                 stock_map[b["item_code"]] = max(actual - reserved, 0)
+
             except (TypeError, ValueError, KeyError):
                 stock_map[b.get("item_code", "unknown")] = 0
 
         return stock_map
 
     # -----------------------------------
-    # RESOLVE STOCK STATUS (with both controls)
+    # RESOLVE STOCK STATUS
     # -----------------------------------
     @classmethod
     def resolve_stock_status(cls, item: Dict, stock_map: Dict[str, float]) -> Dict:
@@ -90,34 +94,42 @@ class StockService:
         Returns:
         {
             "stock_status": "In Stock" | "Out of Stock" | "Backorder",
-            "available_qty": int (only if show_quantity enabled)
+            "available_qty": int (only if quantity display enabled)
         }
         """
+
         try:
             show_stock = int(item.get("custom_show_stock") or 0)
-            show_quantity = int(item.get("custom_show_stock_quantity") or 0)
         except (ValueError, TypeError):
             show_stock = 0
-            show_quantity = 0
 
         item_code = item.get("item_code") or "unknown"
+
         available = float(stock_map.get(item_code, 0))
+
+        # subtract local checkout reservations
         reserved_local = cls._get_reserved_qty(item_code)
         available -= reserved_local
+
         available = max(available, 0)
 
         result: Dict = {"stock_status": "Out of Stock"}
 
         if show_stock == 1:
+
             if available <= 0:
+
                 if SiteControl.is_minus_stock_selling_enabled():
                     result["stock_status"] = "Backorder"
+
                 else:
                     result["stock_status"] = "Out of Stock"
+
             else:
+
                 result["stock_status"] = "In Stock"
-            # Show quantity only if both show_stock + show_quantity are enabled
-            if show_quantity == 1 and available > 0:
+
+                # Show quantity if site allows it
                 if SiteControl.is_available_qty_enabled():
                     result["available_qty"] = int(available)
 
@@ -128,19 +140,27 @@ class StockService:
     # -----------------------------------
     @classmethod
     def validate_cart_stock(cls, cart_items: List[Dict]):
+
         item_codes = [item.get("item_code") for item in cart_items]
+
         stock_map = cls.fetch_stock_map(item_codes)
+
         minus_stock_allowed = SiteControl.is_minus_stock_selling_enabled()
 
         for item in cart_items:
+
             item_code = item.get("item_code")
             qty = float(item.get("qty") or 0)
+
             available = float(stock_map.get(item_code, 0))
+
             reserved_local = cls._get_reserved_qty(item_code)
+
             available -= reserved_local
 
             if available >= qty:
                 continue
+
             if minus_stock_allowed:
                 continue
 
@@ -154,10 +174,15 @@ class StockService:
     # -----------------------------------
     @classmethod
     def reserve_stock(cls, cart_items: List[Dict]):
+
         now = datetime.utcnow()
+
         for item in cart_items:
+
             item_code = item.get("item_code")
+
             qty = float(item.get("qty") or 0)
+
             cls.RESERVED_STOCK.setdefault(item_code, []).append((qty, now))
 
     # -----------------------------------
@@ -165,23 +190,33 @@ class StockService:
     # -----------------------------------
     @classmethod
     def release_reservation(cls, cart_items: List[Dict]):
+
         cls._cleanup_expired()
+
         for item in cart_items:
+
             item_code = item.get("item_code")
+
             qty = float(item.get("qty") or 0)
+
             entries = cls.RESERVED_STOCK.get(item_code)
+
             if not entries:
                 continue
 
             remaining = qty
+
             updated: List[Tuple[float, datetime]] = []
 
             for q, ts in entries:
+
                 if remaining <= 0:
                     updated.append((q, ts))
                     continue
+
                 if q <= remaining:
                     remaining -= q
+
                 else:
                     updated.append((q - remaining, ts))
                     remaining = 0
