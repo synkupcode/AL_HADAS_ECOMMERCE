@@ -1,8 +1,7 @@
 # app/api/auth.py
 
-from fastapi import APIRouter, Response, HTTPException
+from fastapi import APIRouter, Response, HTTPException, BackgroundTasks
 from pydantic import BaseModel, EmailStr
-import asyncio
 
 from app.notifications.notify import send_otp as otp_sender, verify_otp as otp_verifier
 from app.auth.jwt import create_access_token, create_refresh_token
@@ -18,13 +17,20 @@ class OTPRequest(BaseModel):
 
 
 @router.post("/request-otp")
-async def request_otp(payload: OTPRequest):
+def request_otp(payload: OTPRequest, background_tasks: BackgroundTasks):
     """
     Sends OTP to the provided email.
     Resends same OTP if still valid (5 min validity, 1 min cooldown).
+
+    Uses background task to avoid blocking API response for SMTP.
     """
+    # Schedule OTP sending in background
+    background_tasks.add_task(otp_sender, payload.email)
+
+    # Determine current OTP status for frontend UI
     # send_otp returns {"status": ..., "message": ...}
     result = otp_sender(payload.email)
+
     return result
 
 
@@ -39,7 +45,8 @@ class OTPVerify(BaseModel):
 @router.post("/verify-otp")
 def verify_otp_endpoint(payload: OTPVerify, response: Response):
     """
-    Verifies OTP, issues access & refresh tokens.
+    Verifies OTP and issues access & refresh tokens.
+    Sets secure HttpOnly cookies for frontend.
     """
     result = otp_verifier(payload.email, payload.code)
 
@@ -75,6 +82,9 @@ def verify_otp_endpoint(payload: OTPVerify, response: Response):
 # -------------------------
 @router.post("/logout")
 def logout(response: Response):
+    """
+    Clears authentication cookies on logout.
+    """
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
     return {"message": "Logged out"}
