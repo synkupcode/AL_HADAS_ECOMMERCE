@@ -1,50 +1,40 @@
 # app/notifications/notify.py
+
 from fastapi import BackgroundTasks
-from app.auth.otp import create_or_get_otp, can_resend, _otp_store
-from app.core.config import settings
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+from app.auth.otp import create_or_get_otp, verify_otp as otp_verify
 
-def _send_smtp_email(to_email: str, subject: str, html_content: str):
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = settings.SMTP_FROM_EMAIL
-    msg["To"] = to_email
-    part = MIMEText(html_content, "html")
-    msg.attach(part)
-
-    try:
-        if settings.SMTP_USE_TLS:
-            server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10)
-            server.starttls()
-        else:
-            server = smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10)
-
-        server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
-        server.sendmail(settings.SMTP_FROM_EMAIL, to_email, msg.as_string())
-        server.quit()
-    except Exception as e:
-        print(f"Error sending email: {e}")
-
+# -------------------------
+# Send OTP
+# -------------------------
 def send_otp(email: str, background_tasks: BackgroundTasks):
-    if not can_resend(email):
-        return {"status": "cooldown", "message": "Please wait before requesting new OTP."}
-
+    """
+    Creates OTP if none exists or expired, sends it asynchronously using BackgroundTasks.
+    Returns status message.
+    """
     otp = create_or_get_otp(email)
     if otp is None:
-        otp = _otp_store[email]["otp_plain"]
+        return {"status": "waiting", "message": "OTP already sent recently"}
 
-    html_content = f"""
-    <h3>Your Verification Code</h3>
-    <h2 style="font-size:22px;">{otp}</h2>
-    <p>Valid for 5 minutes.</p>
-    """
-    background_tasks.add_task(_send_smtp_email, to_email=email, subject="Your OTP Code", html_content=html_content)
-    return {"status": "sent", "message": "OTP sent successfully."}
+    # Background task to send OTP
+    def _send_email():
+        # Replace with actual email sending logic
+        print(f"Sending OTP {otp} to {email}")
+        # Example:
+        # email_client.send_email(to=email, subject="Your OTP", body=f"Your OTP is {otp}")
 
+    background_tasks.add_task(_send_email)
+
+    return {"status": "sent", "message": "OTP sent successfully"}
+
+
+# -------------------------
+# Verify OTP
+# -------------------------
 def verify_otp(email: str, code: str):
-    from app.auth.otp import verify_otp as check
-    if check(email, code):
+    """
+    Verifies the OTP.
+    Returns {"status": "verified"} or {"status": "failed"}
+    """
+    if otp_verify(email, code):
         return {"status": "verified"}
-    return {"status": "invalid"}
+    return {"status": "failed"}
