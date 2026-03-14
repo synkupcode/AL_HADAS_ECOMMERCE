@@ -17,20 +17,12 @@ class OTPRequest(BaseModel):
 
 
 @router.post("/request-otp")
-def request_otp(payload: OTPRequest, background_tasks: BackgroundTasks):
+async def request_otp(payload: OTPRequest, background_tasks: BackgroundTasks):
     """
     Sends OTP to the provided email.
     Resends same OTP if still valid (5 min validity, 1 min cooldown).
-
-    Uses background task to avoid blocking API response for SMTP.
     """
-    # Schedule OTP sending in background
-    background_tasks.add_task(otp_sender, payload.email)
-
-    # Determine current OTP status for frontend UI
-    # send_otp returns {"status": ..., "message": ...}
-    result = otp_sender(payload.email)
-
+    result = otp_sender(payload.email, background_tasks)  # ✅ pass background_tasks
     return result
 
 
@@ -45,8 +37,7 @@ class OTPVerify(BaseModel):
 @router.post("/verify-otp")
 def verify_otp_endpoint(payload: OTPVerify, response: Response):
     """
-    Verifies OTP and issues access & refresh tokens.
-    Sets secure HttpOnly cookies for frontend.
+    Verifies OTP, issues access & refresh tokens.
     """
     result = otp_verifier(payload.email, payload.code)
 
@@ -62,8 +53,8 @@ def verify_otp_endpoint(payload: OTPVerify, response: Response):
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=True,      # ✅ REQUIRED for HTTPS
-        samesite="none"   # ✅ REQUIRED for cross-domain
+        secure=True,
+        samesite="none"
     )
 
     response.set_cookie(
@@ -82,9 +73,6 @@ def verify_otp_endpoint(payload: OTPVerify, response: Response):
 # -------------------------
 @router.post("/logout")
 def logout(response: Response):
-    """
-    Clears authentication cookies on logout.
-    """
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
     return {"message": "Logged out"}
