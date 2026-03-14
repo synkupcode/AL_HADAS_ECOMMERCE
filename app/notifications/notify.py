@@ -1,80 +1,55 @@
-# app/notifications/notify.py
+# app/api/auth.py
+from fastapi import APIRouter, Response, HTTPException, BackgroundTasks
+from pydantic import BaseModel, EmailStr
 
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+from app.notifications.notify import send_otp as otp_sender, verify_otp as otp_verifier
+from app.auth.jwt import create_access_token, create_refresh_token
 
-from app.auth.otp import create_or_get_otp, can_resend
-from app.core.config import settings
+router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
-# -----------------------------
-# Send OTP Email via Direct SMTP
-# -----------------------------
-def send_otp(email: str):
+class OTPRequest(BaseModel):
+    email: EmailStr
+
+@router.post("/request-otp")
+async def request_otp(payload: OTPRequest, background_tasks: BackgroundTasks):
     """
-    Sends OTP to the provided email.
-    Resends same OTP if still valid (5 min validity, 1 min cooldown).
+    Sends OTP to email immediately using BackgroundTasks.
     """
+    return otp_sender(payload.email, background_tasks)
 
-    if not can_resend(email):
-        return {
-            "status": "cooldown",
-            "message": "Please wait before requesting new OTP."
-        }
+class OTPVerify(BaseModel):
+    email: EmailStr
+    code: str
 
-    otp = create_or_get_otp(email)
+@router.post("/verify-otp")
+def verify_otp_endpoint(payload: OTPVerify, response: Response):
+    result = otp_verifier(payload.email, payload.code)
+    if result["status"] != "verified":
+        raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    if otp is None:
-        # Valid OTP already exists, retrieve it from store
-        from app.auth.otp import _otp_store
-        otp = _otp_store[email]["otp_plain"]
-        return {
-            "status": "existing",
-            "message": "OTP is still valid.",
-            "otp_sent": True  # optional, can be removed
-        }
+    access_token = create_access_token({"sub": payload.email})
+    refresh_token = create_refresh_token({"sub": payload.email})
 
-    # Compose email
-    subject = "Your OTP Verification Code"
-    html_content = f"""
-    <h3>Your Verification Code</h3>
-    <h2 style="font-size:22px;">{otp}</h2>
-    <p>Valid for 5 minutes.</p>
-    """
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=True,
+        samesite="none"
+    )
 
-    # Direct SMTP send
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["From"] = settings.SMTP_FROM_EMAIL
-        msg["To"] = email
-        msg["Subject"] = subject
-        msg.attach(MIMEText(html_content, "html"))
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="none"
+    )
 
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-            if settings.SMTP_USE_TLS:
-                server.starttls()
-            server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
-            server.sendmail(settings.SMTP_FROM_EMAIL, email, msg.as_string())
+    return {"message": "Login successful"}
 
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Failed to send OTP email: {e}"
-        }
-
-    return {
-        "status": "sent",
-        "message": "OTP sent successfully."
-    }
-
-
-# -----------------------------
-# Verify OTP
-# -----------------------------
-def verify_otp(email: str, code: str):
-    from app.auth.otp import verify_otp as check
-
-    if check(email, code):
-        return {"status": "verified"}
-
-    return {"status": "invalid"}
+@router.post("/logout")
+def logout(response: Response):
+    response.delete_cookie("access_token")
+    response.delete_cookie("refresh_token")
+    return {"message": "Logged out"}
