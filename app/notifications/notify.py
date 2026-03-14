@@ -1,44 +1,30 @@
-from app.auth.otp import create_or_get_otp, can_resend
-from app.core.config import settings
-from app.services.email_service import send_email
+# app/notifications/notify.py
+
+import smtplib
+import asyncio
+from email.mime.text import MIMEText
+from core.config import settings
 
 
-def send_otp(email: str):
-
-    if not can_resend(email):
-        return {
-            "status": "cooldown",
-            "message": "Please wait before requesting new OTP."
-        }
-
-    otp = create_or_get_otp(email)
-
-    if otp is None:
-        return {
-            "status": "existing",
-            "message": "OTP already valid."
-        }
-
-    html_content = f"""
-    <h3>Your Verification Code</h3>
-    <h2 style="font-size:22px;">{otp}</h2>
-    <p>Valid for 5 minutes.</p>
+def send_email_sync(to_email: str, subject: str, html_content: str):
     """
+    Sends email immediately via SMTP (blocking).
+    """
+    msg = MIMEText(html_content, 'html')
+    msg['Subject'] = subject
+    msg['From'] = settings.SMTP_FROM_EMAIL
+    msg['To'] = to_email
 
-    # Direct SMTP (clean architecture)
-    send_email(
-        to_email=email,
-        subject="Your OTP Code",
-        html_content=html_content
-    )
-
-    return {"status": "sent"}
+    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as smtp:
+        if settings.SMTP_USE_TLS:
+            smtp.starttls()
+        smtp.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
+        smtp.send_message(msg)
 
 
-def verify_otp(email: str, code: str):
-    from app.auth.otp import verify_otp as check
-
-    if check(email, code):
-        return {"status": "verified"}
-
-    return {"status": "invalid"}
+async def send_email_async(to_email: str, subject: str, html_content: str):
+    """
+    Sends email asynchronously using background thread.
+    """
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, send_email_sync, to_email, subject, html_content)
