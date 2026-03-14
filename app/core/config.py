@@ -1,5 +1,3 @@
-# app/core/config.py
-
 import os
 from dotenv import load_dotenv
 
@@ -19,19 +17,53 @@ class Settings:
     ERP_API_SECRET: str = os.getenv("ERP_API_SECRET", "")
 
     # -------------------------
+    # CORS
+    # -------------------------
+    ALLOWED_ORIGINS: list[str] = _split_csv(
+        os.getenv("ALLOWED_ORIGINS", "*")
+    )
+
+    # -------------------------
+    # FRONTEND SECURITY
+    # -------------------------
+    FRONTEND_SECRET_TOKEN: str = os.getenv("FRONTEND_SECRET_TOKEN", "")
+
+    # -------------------------
+    # DOCTYPE (RFQ)
+    # -------------------------
+    ECOM_RFQ_DOCTYPE: str = "E-Commerce RFQ"
+    ECOM_RFQ_ITEM_TABLE_FIELD: str = "item_table"
+
+    # -------------------------
+    # CONTACT / ENQUIRY
+    # -------------------------
+    SALES_EMAIL: str = os.getenv("SALES_EMAIL", "sales@alhadasksa.com")
+
+        # -------------------------
+    # JWT AUTHENTICATION
+    # -------------------------
+    
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "")
+    JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
+    
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
+        os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15")
+    )
+    
+    REFRESH_TOKEN_EXPIRE_DAYS: int = int(
+        os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "30")
+    )
+
+    # -------------------------
     # SMTP (Direct Email for OTP)
     # -------------------------
+
     SMTP_HOST: str = os.getenv("SMTP_HOST", "")
     SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
     SMTP_USERNAME: str = os.getenv("SMTP_USERNAME", "")
     SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
     SMTP_FROM_EMAIL: str = os.getenv("SMTP_FROM_EMAIL", "")
     SMTP_USE_TLS: bool = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
-
-    # -------------------------
-    # Other Settings (optional)
-    # -------------------------
-    SALES_EMAIL: str = os.getenv("SALES_EMAIL", "sales@alhadasksa.com")
 
 
 settings = Settings()
