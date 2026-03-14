@@ -1,82 +1,53 @@
 # app/notifications/notify.py
 
-import os
-import smtplib
-from email.message import EmailMessage
-from fastapi import BackgroundTasks
-from app.auth.otp import create_or_get_otp, verify_otp as otp_verify
-
-SMTP_HOST = os.getenv("SMTP_HOST")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
-SMTP_USERNAME = os.getenv("SMTP_USERNAME")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "false").lower() == "true"
-SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL")
+from app.auth.otp import create_or_get_otp, can_resend
+from app.core.config import settings
+from app.services.email_service import send_email
 
 
-# ---------------------
-# Send OTP
-# ---------------------
-def send_otp(email: str, background_tasks):
+def send_otp(email: str):
+    """
+    Generate or reuse OTP and send it via SMTP immediately.
+    Returns a dictionary with status: 'sent', 'cooldown', or 'existing'.
+    """
+    if not can_resend(email):
+        return {
+            "status": "cooldown",
+            "message": "Please wait before requesting new OTP."
+        }
 
     otp = create_or_get_otp(email)
 
     if otp is None:
-        return {"status": "sent", "message": "OTP already sent. Please wait."}
+        return {
+            "status": "existing",
+            "message": "OTP already valid."
+        }
 
-    # DEBUG: call directly so logs show immediately
-    _send_email(email, otp)
+    html_content = f"""
+    <h3>Your Verification Code</h3>
+    <h2 style="font-size:22px;">{otp}</h2>
+    <p>Valid for 5 minutes.</p>
+    """
 
-    return {"status": "sent", "message": "OTP sent successfully"}
-
-
-# ---------------------
-# Email sender
-# ---------------------
-def _send_email(to_email: str, otp: str):
-
-    msg = EmailMessage()
-    msg["Subject"] = "Your OTP Code"
-    msg["From"] = SMTP_FROM_EMAIL
-    msg["To"] = to_email
-    msg.set_content(
-        f"Your OTP code is: {otp}\n\n"
-        "This code is valid for 5 minutes."
+    # Send OTP directly using SMTP settings
+    send_email(
+        to_email=email,
+        subject="Your OTP Code",
+        html_content=html_content
     )
 
-    try:
-
-        # PORT 465 = SSL
-        if SMTP_PORT == 465:
-
-            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
-                server.login(SMTP_USERNAME, SMTP_PASSWORD)
-                server.send_message(msg)
-
-        # PORT 587 = TLS
-        else:
-
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-
-                if SMTP_USE_TLS:
-                    server.starttls()
-
-                server.login(SMTP_USERNAME, SMTP_PASSWORD)
-                server.send_message(msg)
-
-        print(f"OTP email sent to {to_email}")
-
-    except Exception as e:
-
-        print(f"SMTP ERROR sending OTP to {to_email}: {e}")
+    return {"status": "sent"}
 
 
-# ---------------------
-# Verify OTP
-# ---------------------
 def verify_otp(email: str, code: str):
+    """
+    Verify OTP code for a given email.
+    Returns dictionary with status: 'verified' or 'invalid'.
+    """
+    from app.auth.otp import verify_otp as check
 
-    if otp_verify(email, code):
+    if check(email, code):
         return {"status": "verified"}
 
-    return {"status": "failed"}
+    return {"status": "invalid"}
