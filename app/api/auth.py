@@ -8,7 +8,6 @@ from app.auth.jwt import create_access_token, create_refresh_token
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
-
 # -------------------------
 # Request OTP Payload
 # -------------------------
@@ -20,9 +19,9 @@ class OTPRequest(BaseModel):
 async def request_otp(payload: OTPRequest, background_tasks: BackgroundTasks):
     """
     Sends OTP to the provided email.
-    Resends same OTP if still valid (5 min validity, 1 min cooldown).
+    Reuses same OTP if still valid.
     """
-    result = otp_sender(payload.email, background_tasks)  # ✅ pass background_tasks
+    result = otp_sender(payload.email, background_tasks)
     return result
 
 
@@ -37,18 +36,16 @@ class OTPVerify(BaseModel):
 @router.post("/verify-otp")
 def verify_otp_endpoint(payload: OTPVerify, response: Response):
     """
-    Verifies OTP, issues access & refresh tokens.
+    Verifies OTP and issues JWT tokens.
     """
     result = otp_verifier(payload.email, payload.code)
 
     if result["status"] != "verified":
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    # Generate JWT tokens
     access_token = create_access_token({"sub": payload.email})
     refresh_token = create_refresh_token({"sub": payload.email})
 
-    # Set secure cookies
     response.set_cookie(
         key="access_token",
         value=access_token,
@@ -56,7 +53,6 @@ def verify_otp_endpoint(payload: OTPVerify, response: Response):
         secure=True,
         samesite="none"
     )
-
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
