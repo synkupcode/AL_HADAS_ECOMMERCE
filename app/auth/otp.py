@@ -1,35 +1,55 @@
+# app/auth/otp.py
+
 import time
 import secrets
 import hashlib
 from typing import Dict
 
-OTP_EXPIRY_SECONDS = 300
-RESEND_COOLDOWN_SECONDS = 60
+# ---------------------
+# Configuration
+# ---------------------
+OTP_EXPIRY_SECONDS = 300          # 5 minutes
+RESEND_COOLDOWN_SECONDS = 60      # 1 minute between resend requests
 MAX_VERIFY_ATTEMPTS = 5
 
-# In-memory store
+# ---------------------
+# In-memory OTP store
+# Format:
+# { "email@example.com": {otp_hash, otp_plain, created_at, expires_at, attempts} }
+# ---------------------
 _otp_store: Dict[str, dict] = {}
 
 
+# ---------------------
+# Internal Helpers
+# ---------------------
 def _generate_otp() -> str:
-    return f"{secrets.randbelow(1000000):06d}"
+    return f"{secrets.randbelow(1000000):06d}"  # 6-digit numeric OTP
 
 
 def _hash_otp(otp: str) -> str:
     return hashlib.sha256(otp.encode()).hexdigest()
 
 
+# ---------------------
+# Public Functions
+# ---------------------
 def create_or_get_otp(identifier: str) -> str | None:
+    """
+    Returns a new OTP if none exists or expired.
+    If valid OTP exists, returns None.
+    """
     now = time.time()
     record = _otp_store.get(identifier)
 
     if record and now < record["expires_at"]:
-        return None  # reuse existing OTP
+        return None  # Reuse existing OTP
 
     otp = _generate_otp()
 
     _otp_store[identifier] = {
         "otp_hash": _hash_otp(otp),
+        "otp_plain": otp,       # store plain OTP for sending
         "created_at": now,
         "expires_at": now + OTP_EXPIRY_SECONDS,
         "attempts": 0
@@ -39,6 +59,9 @@ def create_or_get_otp(identifier: str) -> str | None:
 
 
 def can_resend(identifier: str) -> bool:
+    """
+    Returns True if cooldown has passed or no OTP exists.
+    """
     record = _otp_store.get(identifier)
     if not record:
         return True
@@ -46,12 +69,17 @@ def can_resend(identifier: str) -> bool:
 
 
 def verify_otp(identifier: str, otp: str) -> bool:
+    """
+    Verifies OTP. Returns True if correct and valid, False otherwise.
+    Deletes OTP on success, expiry, or too many attempts.
+    """
     record = _otp_store.get(identifier)
-
     if not record:
         return False
 
-    if time.time() > record["expires_at"]:
+    now = time.time()
+
+    if now > record["expires_at"]:
         del _otp_store[identifier]
         return False
 
@@ -63,5 +91,6 @@ def verify_otp(identifier: str, otp: str) -> bool:
         record["attempts"] += 1
         return False
 
+    # Successful verification
     del _otp_store[identifier]
     return True
