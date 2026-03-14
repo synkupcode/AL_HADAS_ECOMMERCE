@@ -17,22 +17,17 @@ SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL")
 # ---------------------
 # Send OTP
 # ---------------------
-def send_otp(email: str, background_tasks: BackgroundTasks):
+def send_otp(email: str, background_tasks):
 
     otp = create_or_get_otp(email)
 
     if otp is None:
-        return {
-            "status": "sent",
-            "message": "OTP already sent. Please wait."
-        }
+        return {"status": "sent", "message": "OTP already sent. Please wait."}
 
-    background_tasks.add_task(_send_email, email, otp)
+    # DEBUG: call directly so logs show immediately
+    _send_email(email, otp)
 
-    return {
-        "status": "sent",
-        "message": "OTP sent successfully"
-    }
+    return {"status": "sent", "message": "OTP sent successfully"}
 
 
 # ---------------------
