@@ -1,5 +1,3 @@
-# app/auth/otp.py
-
 import time
 import secrets
 import hashlib
@@ -14,8 +12,6 @@ MAX_VERIFY_ATTEMPTS = 5
 
 # ---------------------
 # In-memory OTP store
-# Format:
-# { "email@example.com": {otp_hash, otp_plain, created_at, expires_at, attempts} }
 # ---------------------
 _otp_store: Dict[str, dict] = {}
 
@@ -24,7 +20,7 @@ _otp_store: Dict[str, dict] = {}
 # Internal Helpers
 # ---------------------
 def _generate_otp() -> str:
-    return f"{secrets.randbelow(1000000):06d}"  # 6-digit numeric OTP
+    return f"{secrets.randbelow(1000000):06d}"
 
 
 def _hash_otp(otp: str) -> str:
@@ -34,22 +30,21 @@ def _hash_otp(otp: str) -> str:
 # ---------------------
 # Public Functions
 # ---------------------
-def create_or_get_otp(identifier: str) -> str | None:
+def create_or_get_otp(identifier: str) -> str:
     """
-    Returns a new OTP if none exists or expired.
-    If valid OTP exists, returns None.
+    Returns the OTP to send.
+    If existing OTP is valid, returns the same OTP (for resend behavior).
     """
     now = time.time()
     record = _otp_store.get(identifier)
 
     if record and now < record["expires_at"]:
-        return None  # Reuse existing OTP
+        return record["otp_plain"]  # reuse existing OTP
 
     otp = _generate_otp()
-
     _otp_store[identifier] = {
         "otp_hash": _hash_otp(otp),
-        "otp_plain": otp,       # store plain OTP for sending
+        "otp_plain": otp,
         "created_at": now,
         "expires_at": now + OTP_EXPIRY_SECONDS,
         "attempts": 0
