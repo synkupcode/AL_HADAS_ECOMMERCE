@@ -1,55 +1,50 @@
-# app/api/auth.py
-from fastapi import APIRouter, Response, HTTPException, BackgroundTasks
-from pydantic import BaseModel, EmailStr
+# app/notifications/notify.py
+from fastapi import BackgroundTasks
+from app.auth.otp import create_or_get_otp, can_resend, _otp_store
+from app.core.config import settings
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
-from app.notifications.notify import send_otp as otp_sender, verify_otp as otp_verifier
-from app.auth.jwt import create_access_token, create_refresh_token
+def _send_smtp_email(to_email: str, subject: str, html_content: str):
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = settings.SMTP_FROM_EMAIL
+    msg["To"] = to_email
+    part = MIMEText(html_content, "html")
+    msg.attach(part)
 
-router = APIRouter(prefix="/api/auth", tags=["Auth"])
+    try:
+        if settings.SMTP_USE_TLS:
+            server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10)
+            server.starttls()
+        else:
+            server = smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10)
 
-class OTPRequest(BaseModel):
-    email: EmailStr
+        server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
+        server.sendmail(settings.SMTP_FROM_EMAIL, to_email, msg.as_string())
+        server.quit()
+    except Exception as e:
+        print(f"Error sending email: {e}")
 
-@router.post("/request-otp")
-async def request_otp(payload: OTPRequest, background_tasks: BackgroundTasks):
+def send_otp(email: str, background_tasks: BackgroundTasks):
+    if not can_resend(email):
+        return {"status": "cooldown", "message": "Please wait before requesting new OTP."}
+
+    otp = create_or_get_otp(email)
+    if otp is None:
+        otp = _otp_store[email]["otp_plain"]
+
+    html_content = f"""
+    <h3>Your Verification Code</h3>
+    <h2 style="font-size:22px;">{otp}</h2>
+    <p>Valid for 5 minutes.</p>
     """
-    Sends OTP to email immediately using BackgroundTasks.
-    """
-    return otp_sender(payload.email, background_tasks)
+    background_tasks.add_task(_send_smtp_email, to_email=email, subject="Your OTP Code", html_content=html_content)
+    return {"status": "sent", "message": "OTP sent successfully."}
 
-class OTPVerify(BaseModel):
-    email: EmailStr
-    code: str
-
-@router.post("/verify-otp")
-def verify_otp_endpoint(payload: OTPVerify, response: Response):
-    result = otp_verifier(payload.email, payload.code)
-    if result["status"] != "verified":
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-
-    access_token = create_access_token({"sub": payload.email})
-    refresh_token = create_refresh_token({"sub": payload.email})
-
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        secure=True,
-        samesite="none"
-    )
-
-    response.set_cookie(
-        key="refresh_token",
-        value=refresh_token,
-        httponly=True,
-        secure=True,
-        samesite="none"
-    )
-
-    return {"message": "Login successful"}
-
-@router.post("/logout")
-def logout(response: Response):
-    response.delete_cookie("access_token")
-    response.delete_cookie("refresh_token")
-    return {"message": "Logged out"}
+def verify_otp(email: str, code: str):
+    from app.auth.otp import verify_otp as check
+    if check(email, code):
+        return {"status": "verified"}
+    return {"status": "invalid"}
