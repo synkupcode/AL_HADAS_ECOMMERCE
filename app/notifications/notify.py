@@ -1,21 +1,22 @@
 # app/notifications/notify.py
 
 from app.auth.otp import create_or_get_otp, can_resend
-from app.core.config import settings
 from app.services.email_service import send_email
 
 
 def send_otp(email: str):
     """
-    Generate or reuse OTP and send it via SMTP immediately.
+    Generate or reuse OTP and send it via ERPNext immediately.
     Returns a dictionary with status: 'sent', 'cooldown', or 'existing'.
     """
+    # Check resend cooldown
     if not can_resend(email):
         return {
             "status": "cooldown",
             "message": "Please wait before requesting new OTP."
         }
 
+    # Generate or reuse OTP
     otp = create_or_get_otp(email)
 
     if otp is None:
@@ -24,17 +25,19 @@ def send_otp(email: str):
             "message": "OTP already valid."
         }
 
+    # HTML content for the OTP email
     html_content = f"""
     <h3>Your Verification Code</h3>
     <h2 style="font-size:22px;">{otp}</h2>
     <p>Valid for 5 minutes.</p>
     """
 
-    # Send OTP directly using SMTP settings
+    # Send OTP via ERPNext instantly (bypassing queue)
     send_email(
         to_email=email,
         subject="Your OTP Code",
-        html_content=html_content
+        html_content=html_content,
+        instant=True
     )
 
     return {"status": "sent"}
