@@ -121,9 +121,15 @@ class EmailService:
 # ------------------------------------------------
 # OTP EMAIL FUNCTION (Used by notify.py)
 # ------------------------------------------------
-def send_email(to_email: str, subject: str, html_content: str):
+def send_email(to_email: str, subject: str, html_content: str, instant: bool = True):
     """
     Direct email sender used ONLY for OTP emails.
+
+    Args:
+        to_email: recipient email
+        subject: email subject
+        html_content: HTML content of the email
+        instant: if True, sends email immediately bypassing ERPNext queue
     """
 
     payload = {
@@ -132,6 +138,9 @@ def send_email(to_email: str, subject: str, html_content: str):
         "content": html_content,
         "send_email": 1
     }
+
+    if instant:
+        payload["now"] = 1  # bypass ERPNext queue for instant sending
 
     try:
         erp_request(
