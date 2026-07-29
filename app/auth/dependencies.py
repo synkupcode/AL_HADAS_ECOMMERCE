@@ -1,3 +1,4 @@
+import os
 from fastapi import Request, HTTPException
 from app.auth.jwt import decode_token
 
